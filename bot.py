@@ -232,7 +232,7 @@ async def on_guild_join(guild):
 
 
 @tasks.loop(
-    minutes=5
+    minutes=15
 )
 async def update_all():
 
