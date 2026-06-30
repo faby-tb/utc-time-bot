@@ -73,6 +73,8 @@ def enabled(guild_id):
 
 async def create_clock(guild):
 
+    await guild.fetch_channels()
+
     for ch in guild.voice_channels:
 
         if ch.name.startswith(
@@ -256,34 +258,11 @@ async def update_all():
 
     for guild in client.guilds:
 
-        if not enabled(
-            guild.id
-        ):
-
+        if not enabled(guild.id):
             continue
 
-        try:
+        await force_update_guild(guild)
 
-            channel = clock_channels.get(
-                guild.id
-            )
-
-            if not channel:
-
-                channel = await create_clock(
-                    guild
-                )
-
-            await channel.edit(
-                name=f"{VOICE_PREFIX} • {hour}"
-            )
-
-        except Exception as e:
-
-            print(
-                guild.name,
-                e
-            )
 
 
 @client.event
@@ -291,9 +270,15 @@ async def on_ready():
 
     await tree.sync()
 
-    print(
-        client.user
-    )
+    print(client.user)
+
+    for guild in client.guilds:
+
+        if enabled(guild.id):
+
+            await create_clock(guild)
+
+            await force_update_guild(guild)
 
     update_all.start()
 
