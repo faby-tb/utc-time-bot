@@ -170,6 +170,35 @@ async def clock(
         ephemeral=True
     )
 
+@tree.command(
+    name="clock_refresh",
+    description="Force update the UTC clock in this server"
+)
+async def clock_refresh(interaction: discord.Interaction):
+
+    guild = interaction.guild
+
+    if guild is None:
+        return
+
+    # permisos (opcional pero recomendado)
+    if not interaction.user.guild_permissions.manage_guild:
+
+        await interaction.response.send_message(
+            "Need Manage Server permission",
+            ephemeral=True
+        )
+
+        return
+
+    await force_update_guild(guild)
+
+    await interaction.response.send_message(
+        "Clock updated → {datetime.now(timezone.utc).strftime('%H:%M UTC')}✅",
+        ephemeral=True
+    )
+
+
 async def force_update_guild(guild):
 
     channel = clock_channels.get(guild.id)
