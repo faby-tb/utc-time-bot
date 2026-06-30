@@ -15,6 +15,8 @@ VOICE_PREFIX = "🕒 UTC"
 
 SETTINGS_FILE = "settings.json"
 
+last_hour = None
+
 intents = discord.Intents.default()
 
 client = discord.Client(
@@ -242,10 +244,11 @@ async def on_guild_join(guild):
 
         await force_update_guild(guild)
 
-global last_hour
 
 @tasks.loop(seconds=60)
 async def update_presence():
+
+    global last_hour
 
     utc = datetime.now(
         timezone.utc
@@ -265,7 +268,7 @@ async def update_presence():
 
                 type=discord.ActivityType.watching,
 
-                name=f"UTC {hour}"
+                name=f"🕒 UTC {hour}"
 
             )
 
@@ -276,13 +279,6 @@ async def update_presence():
 )
 async def update_all():
 
-    utc = datetime.now(
-        timezone.utc
-    )
-
-    hour = utc.strftime(
-        "%H:%M"
-    )
 
     for guild in client.guilds:
 
