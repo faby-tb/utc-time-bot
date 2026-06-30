@@ -194,7 +194,7 @@ async def clock_refresh(interaction: discord.Interaction):
     await force_update_guild(guild)
 
     await interaction.response.send_message(
-        "Clock updated → {datetime.now(timezone.utc).strftime('%H:%M UTC')}✅",
+        f"Clock updated → {datetime.now(timezone.utc).strftime('%H:%M UTC')}✅",
         ephemeral=True
     )
 
