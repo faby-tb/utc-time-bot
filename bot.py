@@ -277,7 +277,7 @@ async def update_presence():
         )
 
 @tasks.loop(
-    minutes=15
+    minutes=5
 )
 async def update_all():
 
