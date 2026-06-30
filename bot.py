@@ -1,19 +1,19 @@
 import os
+import json
 import discord
 
 from dotenv import load_dotenv
+from discord.ext import tasks
+from datetime import datetime, timezone
+from discord import app_commands
 
 load_dotenv()
-
-from datetime import datetime
-from datetime import timezone
-
-from discord.ext import tasks
-
 
 TOKEN = os.getenv("TOKEN")
 
 VOICE_PREFIX = "🕒 UTC"
+
+SETTINGS_FILE = "settings.json"
 
 intents = discord.Intents.default()
 
@@ -21,74 +21,155 @@ client = discord.Client(
     intents=intents
 )
 
+tree = app_commands.CommandTree(
+    client
+)
+
 clock_channels = {}
 
 
-async def find_or_create_clock(guild):
+def load_settings():
 
-    for channel in guild.voice_channels:
+    try:
 
-        if channel.name.startswith(
+        with open(
+            SETTINGS_FILE,
+            "r",
+            encoding="utf8"
+        ) as f:
+
+            return json.load(f)
+
+    except:
+
+        return {}
+
+
+def save_settings(data):
+
+    with open(
+        SETTINGS_FILE,
+        "w",
+        encoding="utf8"
+    ) as f:
+
+        json.dump(
+            data,
+            f,
+            indent=2
+        )
+
+
+settings = load_settings()
+
+
+def enabled(guild_id):
+
+    return settings.get(
+        str(guild_id),
+        False
+    )
+
+
+async def create_clock(guild):
+
+    for ch in guild.voice_channels:
+
+        if ch.name.startswith(
             VOICE_PREFIX
         ):
+
             clock_channels[
                 guild.id
-            ] = channel
+            ] = ch
 
-            return channel
+            return ch
 
-    channel = await guild.create_voice_channel(
+    ch = await guild.create_voice_channel(
         f"{VOICE_PREFIX} • --:--"
     )
 
     clock_channels[
         guild.id
-    ] = channel
+    ] = ch
 
-    return channel
+    return ch
 
 
-async def update_server(guild):
+async def delete_clock(guild):
 
-    try:
+    for ch in guild.voice_channels:
 
-        channel = clock_channels.get(
-            guild.id
+        if ch.name.startswith(
+            VOICE_PREFIX
+        ):
+
+            await ch.delete()
+
+
+@tree.command(
+    name="clock",
+    description="Enable or disable UTC clock"
+)
+@app_commands.describe(
+    enabled="true enable / false disable"
+)
+async def clock(
+    interaction: discord.Interaction,
+    enabled: bool
+):
+
+    guild = interaction.guild
+
+    if guild is None:
+        return
+
+    if not interaction.user.guild_permissions.manage_guild:
+
+        await interaction.response.send_message(
+            "Need Manage Server",
+            ephemeral=True
         )
 
-        if not channel:
+        return
 
-            channel = await find_or_create_clock(
-                guild
-            )
+    settings[
+        str(guild.id)
+    ] = enabled
 
-        utc = datetime.now(
-            timezone.utc
+    save_settings(
+        settings
+    )
+
+    if enabled:
+
+        await create_clock(
+            guild
         )
 
-        hour = utc.strftime(
-            "%H:%M"
+        msg = (
+            "UTC clock enabled"
         )
 
-        desired = (
-            f"{VOICE_PREFIX} • {hour}"
+    else:
+
+        await delete_clock(
+            guild
         )
 
-        if channel.name != desired:
-
-            await channel.edit(
-                name=desired
-            )
-
-    except Exception as e:
-
-        print(
-            guild.name,
-            e
+        msg = (
+            "UTC clock disabled"
         )
 
+    await interaction.response.send_message(
+        msg,
+        ephemeral=True
+    )
 
-@tasks.loop(minutes=5)
+
+@tasks.loop(
+    minutes=5
+)
 async def update_all():
 
     utc = datetime.now(
@@ -113,43 +194,44 @@ async def update_all():
 
     for guild in client.guilds:
 
-        await update_server(
-            guild
-        )
+        if not enabled(
+            guild.id
+        ):
 
-    print(
-        "Updated",
-        hour
-    )
+            continue
 
+        try:
 
-@client.event
-async def on_guild_join(
-    guild
-):
+            channel = clock_channels.get(
+                guild.id
+            )
 
-    print(
-        "Joined",
-        guild.name
-    )
+            if not channel:
 
-    await find_or_create_clock(
-        guild
-    )
+                channel = await create_clock(
+                    guild
+                )
+
+            await channel.edit(
+                name=f"{VOICE_PREFIX} • {hour}"
+            )
+
+        except Exception as e:
+
+            print(
+                guild.name,
+                e
+            )
 
 
 @client.event
 async def on_ready():
 
+    await tree.sync()
+
     print(
         client.user
     )
-
-    for guild in client.guilds:
-
-        await find_or_create_clock(
-            guild
-        )
 
     update_all.start()
 
