@@ -200,6 +200,18 @@ async def clock_refresh(interaction: discord.Interaction):
         ephemeral=True
     )
 
+@tree.command(
+    name="utc",
+    description="Show current UTC time"
+)
+async def utc(interaction: discord.Interaction):
+
+    now = datetime.now(timezone.utc).strftime("%H:%M UTC")
+
+    await interaction.response.send_message(
+        f"🕒 UTC time: **{now}**"
+    )
+
 
 async def force_update_guild(guild):
 
