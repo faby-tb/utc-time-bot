@@ -309,7 +309,7 @@ async def on_ready():
             await force_update_guild(guild)
 
     update_all.start()
-
+    update_presence.start()
 
 client.run(
     TOKEN
