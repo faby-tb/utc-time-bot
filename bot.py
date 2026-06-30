@@ -242,6 +242,34 @@ async def on_guild_join(guild):
 
         await force_update_guild(guild)
 
+global last_hour
+
+@tasks.loop(seconds=60)
+async def update_presence():
+
+    utc = datetime.now(
+        timezone.utc
+    )
+
+    hour = utc.strftime(
+        "%H:%M"
+    )
+
+    if hour != last_hour:
+
+        last_hour = hour
+
+        await client.change_presence(
+
+            activity=discord.Activity(
+
+                type=discord.ActivityType.watching,
+
+                name=f"UTC {hour}"
+
+            )
+
+        )
 
 @tasks.loop(
     minutes=15
@@ -254,18 +282,6 @@ async def update_all():
 
     hour = utc.strftime(
         "%H:%M"
-    )
-
-    await client.change_presence(
-
-        activity=discord.Activity(
-
-            type=discord.ActivityType.watching,
-
-            name=f"UTC {hour}"
-
-        )
-
     )
 
     for guild in client.guilds:
