@@ -75,6 +75,8 @@ def enabled(guild_id):
 
 async def create_clock(guild):
 
+    now = datetime.now(timezone.utc).strftime("%H:%M UTC")
+
     await guild.fetch_channels()
 
     for ch in guild.voice_channels:
@@ -90,7 +92,7 @@ async def create_clock(guild):
             return ch
 
     ch = await guild.create_voice_channel(
-        f"{VOICE_PREFIX} • --:--"
+        f"{VOICE_PREFIX} • {now}"
     )
 
     clock_channels[
