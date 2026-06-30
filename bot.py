@@ -157,6 +157,10 @@ async def clock(
             guild
         )
 
+        await force_update_guild(
+            guild
+        )
+
         msg = (
             "UTC clock disabled"
         )
@@ -165,6 +169,35 @@ async def clock(
         msg,
         ephemeral=True
     )
+
+async def force_update_guild(guild):
+
+    channel = clock_channels.get(guild.id)
+
+    if not channel:
+
+        channel = await create_clock(guild)
+
+    utc = datetime.now(timezone.utc)
+    hour = utc.strftime("%H:%M")
+
+    try:
+        await channel.edit(
+            name=f"{VOICE_PREFIX} • {hour}"
+        )
+
+    except Exception as e:
+
+        print(guild.name, e)
+
+@client.event
+async def on_guild_join(guild):
+
+    if enabled(guild.id):
+
+        await create_clock(guild)
+
+        await force_update_guild(guild)
 
 
 @tasks.loop(
