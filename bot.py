@@ -180,14 +180,20 @@ tree = app_commands.CommandTree(client)
 # =========================
 async def get_clock_channel(guild):
 
-    from db import get_channel
-
     channel_id = get_channel(guild.id)
 
     if channel_id:
         channel = guild.get_channel(channel_id)
-        if channel:
-            return channel
+
+        # 🔥 si no está en cache, buscar por API
+        if channel is None:
+            try:
+                channel = await guild.fetch_channel(channel_id)
+                return channel
+            except:
+                return None
+
+        return channel
 
     return None
 
@@ -325,7 +331,12 @@ async def on_ready():
         if not is_enabled(guild.id):
             continue
 
-        await force_update_guild(guild)
+        channel = await get_clock_channel(guild)
+
+        if not channel:
+            await create_clock(guild)
+        else:
+            await force_update_guild(guild)
 
     update_all.start()
     update_presence.start()
