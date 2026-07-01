@@ -18,7 +18,7 @@ TOKEN = os.getenv("TOKEN")
 VOICE_PREFIX = "🕒 UTC"
 
 # =========================
-# SQLITE (PERSISTENCIA)
+# SQLITE
 # =========================
 conn = sqlite3.connect("settings.db", check_same_thread=False)
 cursor = conn.cursor()
@@ -34,80 +34,72 @@ CREATE TABLE IF NOT EXISTS guild_settings (
 
 conn.commit()
 
+# =========================
+# DB UNIFICADA (FIX CLAVE)
+# =========================
+def update_guild(guild_id: int, enabled=None, channel_id=None, last_update=None):
+    cursor.execute("SELECT * FROM guild_settings WHERE guild_id=?", (str(guild_id),))
+    row = cursor.fetchone()
 
-# =========================
-# ENABLE / DISABLE STATE
-# =========================
-def set_enabled(guild_id: int, value: bool):
-    cursor.execute("""
-        INSERT INTO guild_settings (guild_id, enabled)
-        VALUES (?, ?)
-        ON CONFLICT(guild_id)
-        DO UPDATE SET enabled=excluded.enabled
-    """, (str(guild_id), int(value)))
+    if not row:
+        cursor.execute("""
+            INSERT INTO guild_settings (guild_id, enabled, channel_id, last_update)
+            VALUES (?, ?, ?, ?)
+        """, (
+            str(guild_id),
+            int(enabled) if enabled is not None else 0,
+            str(channel_id) if channel_id else None,
+            last_update
+        ))
+    else:
+        if enabled is not None:
+            cursor.execute(
+                "UPDATE guild_settings SET enabled=? WHERE guild_id=?",
+                (int(enabled), str(guild_id))
+            )
+
+        if channel_id is not None:
+            cursor.execute(
+                "UPDATE guild_settings SET channel_id=? WHERE guild_id=?",
+                (str(channel_id), str(guild_id))
+            )
+
+        if last_update is not None:
+            cursor.execute(
+                "UPDATE guild_settings SET last_update=? WHERE guild_id=?",
+                (last_update, str(guild_id))
+            )
 
     conn.commit()
 
 
 def is_enabled(guild_id: int) -> bool:
-    cursor.execute("""
-        SELECT enabled FROM guild_settings WHERE guild_id=?
-    """, (str(guild_id),))
-
+    cursor.execute("SELECT enabled FROM guild_settings WHERE guild_id=?", (str(guild_id),))
     row = cursor.fetchone()
     return bool(row[0]) if row else False
 
-def set_last_update(guild_id: int, timestamp: str):
-    cursor.execute("""
-        INSERT INTO guild_settings (guild_id, last_update)
-        VALUES (?, ?)
-        ON CONFLICT(guild_id)
-        DO UPDATE SET last_update=excluded.last_update
-    """, (str(guild_id), timestamp))
 
-    conn.commit()
+def get_channel(guild_id: int):
+    cursor.execute("SELECT channel_id FROM guild_settings WHERE guild_id=?", (str(guild_id),))
+    row = cursor.fetchone()
+    return int(row[0]) if row and row[0] else None
+
 
 def get_last_update(guild_id: int):
-    cursor.execute("""
-        SELECT last_update FROM guild_settings WHERE guild_id=?
-    """, (str(guild_id),))
-
+    cursor.execute("SELECT last_update FROM guild_settings WHERE guild_id=?", (str(guild_id),))
     row = cursor.fetchone()
     return row[0] if row else None
 
 
 # =========================
-# CHANNEL ID STORAGE
-# =========================
-def set_channel(guild_id: int, channel_id: int):
-    cursor.execute("""
-        INSERT INTO guild_settings (guild_id, channel_id)
-        VALUES (?, ?)
-        ON CONFLICT(guild_id)
-        DO UPDATE SET channel_id=excluded.channel_id
-    """, (str(guild_id), str(channel_id)))
-
-    conn.commit()
-
-
-def get_channel(guild_id: int):
-    cursor.execute("""
-        SELECT channel_id FROM guild_settings WHERE guild_id=?
-    """, (str(guild_id),))
-
-    row = cursor.fetchone()
-    return int(row[0]) if row and row[0] else None
-
-# =========================
-# DISCORD BOT
+# DISCORD
 # =========================
 intents = discord.Intents.default()
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
 
-
 # =========================
-# FLASK (KEEP ALIVE RENDER)
+# FLASK
 # =========================
 app = Flask(__name__)
 
@@ -115,87 +107,40 @@ app = Flask(__name__)
 def home():
     return "UTC Bot alive"
 
-def run_web():
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 3000)))
-
-@tree.command(name="status")
-async def status(interaction: discord.Interaction):
-
-    guild = interaction.guild
-
-    enabled = is_enabled(guild.id)
-    channel_id = get_channel(guild.id)
-
-    channel_ok = False
-
-    if channel_id:
-        channel_ok = guild.get_channel(channel_id) is not None
-
-    description = (
-        f"🟢 Enabled: {enabled}\n"
-        f"📡 Channel stored: {channel_id}\n"
-        f"🔗 Channel exists: {channel_ok}"
-    )
-
-    await interaction.response.send_message(description, ephemeral=True)
 
 @app.route("/api/guilds")
 def api_guilds():
+    cursor.execute("SELECT guild_id, enabled, channel_id, last_update FROM guild_settings")
+    rows = cursor.fetchall()
 
-    guild_ids_db = {}
-
-    cursor.execute("""
-        SELECT guild_id, enabled, channel_id, last_update
-        FROM guild_settings
-    """)
-
-    for g in cursor.fetchall():
-        guild_ids_db[g[0]] = {
-            "enabled": bool(g[1]),
-            "channel_id": g[2],
-            "last_update": g[3]
+    db = {
+        r[0]: {
+            "enabled": bool(r[1]),
+            "channel_id": r[2],
+            "last_update": r[3]
         }
+        for r in rows
+    }
 
     data = []
 
-    for guild in client.guilds:
-
-        db = guild_ids_db.get(str(guild.id), {
+    for g in client.guilds:
+        info = db.get(str(g.id), {
             "enabled": False,
             "channel_id": None,
             "last_update": None
         })
 
         data.append({
-            "guild_id": guild.id,
-            "guild_name": guild.name,
-            "enabled": db["enabled"],
-            "channel_id": db["channel_id"],
-            "last_update": db["last_update"]
+            "guild_id": g.id,
+            "guild_name": g.name,
+            "enabled": info["enabled"],
+            "channel_id": info["channel_id"],
+            "last_update": info["last_update"]
         })
 
     return {"guilds": data}
 
-@app.route("/api/bot")
-def bot_status():
-    return {
-        "latency": round(client.latency * 1000, 2),
-        "guild_count": len(client.guilds),
-        "status": "online"
-    }
-
-@app.route("/api/sync")
-def api_sync():
-
-    for guild in client.guilds:
-        cursor.execute("""
-            INSERT OR IGNORE INTO guild_settings (guild_id, enabled, channel_id, last_update)
-            VALUES (?, 0, NULL, NULL)
-        """, (str(guild.id),))
-
-    conn.commit()
-
-    return {"status": "synced"}
 
 @app.route("/dashboard")
 def dashboard():
@@ -208,7 +153,6 @@ def dashboard():
             .card { padding:10px; margin:10px; background:#1c1c1c; border-radius:10px; }
         </style>
     </head>
-
     <body>
         <h1>🕒 UTC Bot Dashboard</h1>
         <div id="content"></div>
@@ -225,7 +169,7 @@ def dashboard():
                     div.className = "card";
 
                     div.innerHTML = `
-                        <h3>Server: ${g.guild_name}</h3>
+                        <h3>${g.guild_name}</h3>
                         <p>Status: ${g.enabled ? "🟢 Enabled" : "🔴 Disabled"}</p>
                         <p>Channel ID: ${g.channel_id || "none"}</p>
                         <p>Last update: ${g.last_update || "never"}</p>
@@ -242,12 +186,10 @@ def dashboard():
     """
 
 
-
 # =========================
-# UTC HELPERS
+# UTC LOGIC
 # =========================
 async def get_clock_channel(guild):
-
     channel_id = get_channel(guild.id)
 
     if not channel_id:
@@ -258,32 +200,24 @@ async def get_clock_channel(guild):
         return channel
 
     try:
-        channel = await guild.fetch_channel(channel_id)
-        return channel
+        return await guild.fetch_channel(channel_id)
     except:
         return None
 
 
 async def create_clock(guild):
-
-    for ch in guild.voice_channels:
-        if ch.name.startswith(VOICE_PREFIX):
-            set_channel(guild.id, ch.id)
-            return ch
-
     now = datetime.now(timezone.utc).strftime("%H:%M UTC")
 
     channel = await guild.create_voice_channel(
         f"{VOICE_PREFIX} • {now}"
     )
 
-    set_channel(guild.id, channel.id)
+    update_guild(guild.id, channel_id=channel.id)
 
     return channel
 
 
 async def force_update_guild(guild):
-
     channel = await get_clock_channel(guild)
 
     if not channel:
@@ -291,91 +225,53 @@ async def force_update_guild(guild):
 
     hour = datetime.now(timezone.utc).strftime("%H:%M")
 
-    await channel.edit(
-        name=f"{VOICE_PREFIX} • {hour}"
-    )
+    await channel.edit(name=f"{VOICE_PREFIX} • {hour}")
 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    set_last_update(guild.id, now)
+    update_guild(guild.id, last_update=now)
 
-def get_status_text(guild_id: int) -> str:
-    return "enabled" if is_enabled(guild_id) else "disabled"
-
-def ensure_guild(guild_id: int):
-    cursor.execute("""
-        INSERT OR IGNORE INTO guild_settings (guild_id, enabled, channel_id, last_update)
-        VALUES (?, 0, NULL, NULL)
-    """, (str(guild_id),))
-    conn.commit()
-
-async def resync_from_discord(guild):
-    """
-    Reconstruye DB si se pierde estado
-    """
-    for ch in guild.voice_channels:
-        if ch.name.startswith(VOICE_PREFIX):
-            set_channel(guild.id, ch.id)
-            return
 
 # =========================
-# SLASH COMMANDS
+# COMMANDS
 # =========================
-@tree.command(name="clock", description="Enable or disable UTC clock")
+@tree.command(name="clock", description="Enable/disable UTC clock")
 @app_commands.describe(enabled="true or false")
 async def clock(interaction: discord.Interaction, enabled: bool):
 
     if not interaction.user.guild_permissions.manage_guild:
-        await interaction.response.send_message(
-            "Need Manage Server permission",
-            ephemeral=True
-        )
+        await interaction.response.send_message("No permission", ephemeral=True)
         return
 
-    guild = interaction.guild
-
-    set_enabled(guild.id, enabled)
+    update_guild(interaction.guild.id, enabled=enabled)
 
     if enabled:
-
-        await force_update_guild(guild)
-
-        msg = "🟢 UTC clock enabled"
-
+        await force_update_guild(interaction.guild)
+        msg = "🟢 Enabled"
     else:
-
-        msg = "🔴 UTC clock disabled"
+        msg = "🔴 Disabled"
 
     await interaction.response.send_message(msg, ephemeral=True)
 
 
-@tree.command(name="clock_refresh", description="Force update UTC clock")
+@tree.command(name="clock_refresh")
 async def clock_refresh(interaction: discord.Interaction):
 
     if not interaction.user.guild_permissions.manage_guild:
-        await interaction.response.send_message(
-            "Need Manage Server permission",
-            ephemeral=True
-        )
+        await interaction.response.send_message("No permission", ephemeral=True)
         return
 
     await force_update_guild(interaction.guild)
 
     now = datetime.now(timezone.utc).strftime("%H:%M UTC")
 
-    await interaction.response.send_message(
-        f"Clock updated → {now} ✅",
-        ephemeral=True
-    )
+    await interaction.response.send_message(f"Updated → {now}", ephemeral=True)
 
 
-@tree.command(name="utc", description="Show current UTC time")
+@tree.command(name="utc")
 async def utc(interaction: discord.Interaction):
 
     now = datetime.now(timezone.utc).strftime("%H:%M UTC")
-
-    await interaction.response.send_message(
-        f"🕒 UTC time: **{now}**"
-    )
+    await interaction.response.send_message(f"🕒 {now}")
 
 
 # =========================
@@ -386,23 +282,12 @@ async def on_ready():
     await tree.sync()
     print(f"Logged in as {client.user}")
 
-    for guild in client.guilds:
-        ensure_guild(guild.id)
+    for g in client.guilds:
+        update_guild(g.id)  # asegura existencia
 
-    for guild in client.guilds:
-
-        if not is_enabled(guild.id):
-            continue
-
-        channel = await get_clock_channel(guild)
-
-        if not channel:
-            channel = await resync_from_discord(guild)
-
-        if not channel:
-            channel = await create_clock(guild)
-
-        await force_update_guild(guild)
+    for g in client.guilds:
+        if is_enabled(g.id):
+            await force_update_guild(g)
 
     update_all.start()
     update_presence.start()
@@ -410,15 +295,14 @@ async def on_ready():
 
 @client.event
 async def on_guild_join(guild):
-
-    if is_enabled(guild.id):
-        await force_update_guild(guild)
+    update_guild(guild.id)
 
 
 # =========================
 # LOOPS
 # =========================
 last_hour = None
+
 
 @tasks.loop(seconds=60)
 async def update_presence():
@@ -439,17 +323,17 @@ async def update_presence():
 
 @tasks.loop(minutes=5)
 async def update_all():
-
-    for guild in client.guilds:
-        if is_enabled(guild.id):
-            await force_update_guild(guild)
+    for g in client.guilds:
+        if is_enabled(g.id):
+            await force_update_guild(g)
 
 
 # =========================
-# STARTUP
+# START
 # =========================
 def start_flask():
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 3000)))
+
 
 threading.Thread(target=start_flask, daemon=True).start()
 
