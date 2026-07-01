@@ -79,6 +79,13 @@ def get_channel(guild_id: int):
     row = cursor.fetchone()
     return int(row[0]) if row and row[0] else None
 
+# =========================
+# DISCORD BOT
+# =========================
+intents = discord.Intents.default()
+client = discord.Client(intents=intents)
+tree = app_commands.CommandTree(client)
+
 
 # =========================
 # FLASK (KEEP ALIVE RENDER)
@@ -213,12 +220,6 @@ def dashboard():
     </html>
     """
 
-# =========================
-# DISCORD BOT
-# =========================
-intents = discord.Intents.default()
-client = discord.Client(intents=intents)
-tree = app_commands.CommandTree(client)
 
 
 # =========================
