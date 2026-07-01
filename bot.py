@@ -273,6 +273,41 @@ async def utc(interaction: discord.Interaction):
     now = datetime.now(timezone.utc).strftime("%H:%M UTC")
     await interaction.response.send_message(f"🕒 {now}")
 
+@tree.command(name="status", description="Show UTC clock status for this server")
+async def status(interaction: discord.Interaction):
+
+    guild = interaction.guild
+
+    if guild is None:
+        await interaction.response.send_message(
+            "This command can only be used in a server.",
+            ephemeral=True
+        )
+        return
+
+    enabled = is_enabled(guild.id)
+    channel_id = get_channel(guild.id)
+    last_update = get_last_update(guild.id)
+
+    channel_exists = False
+    if channel_id:
+        channel = guild.get_channel(channel_id)
+        if not channel:
+            try:
+                channel = await guild.fetch_channel(channel_id)
+            except:
+                channel = None
+        channel_exists = channel is not None
+
+    description = (
+        f"🟢 Enabled: {enabled}\n"
+        f"📡 Channel ID: {channel_id}\n"
+        f"🔗 Channel exists: {channel_exists}\n"
+        f"⏱️ Last update: {last_update or 'never'}"
+    )
+
+    await interaction.response.send_message(description, ephemeral=True)
+
 
 # =========================
 # EVENTS
