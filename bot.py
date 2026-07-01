@@ -232,12 +232,10 @@ async def get_clock_channel(guild):
     if not channel_id:
         return None
 
-    # 🔥 intenta cache
     channel = guild.get_channel(channel_id)
     if channel:
         return channel
 
-    # 🔥 fallback API real (CRÍTICO)
     try:
         channel = await guild.fetch_channel(channel_id)
         return channel
@@ -339,35 +337,6 @@ async def utc(interaction: discord.Interaction):
         f"🕒 UTC time: **{now}**"
     )
 
-# @tree.command(name="status", description="Show UTC clock status for this server")
-# async def status(interaction: discord.Interaction):
-
-#     guild = interaction.guild
-
-#     if guild is None:
-#         await interaction.response.send_message(
-#             "This command can only be used in a server.",
-#             ephemeral=True
-#         )
-#         return
-
-#     status = is_enabled(guild.id)
-
-#     if status:
-#         description = (
-#             "🟢 UTC Clock is **ENABLED**\n"
-#             "The bot is updating the voice channel every minute."
-#         )
-#     else:
-#         description = (
-#             "🔴 UTC Clock is **DISABLED**\n"
-#             "Use /clock enabled:true to activate it."
-#         )
-
-#     await interaction.response.send_message(
-#         description,
-#         ephemeral=True
-#     )
 
 # =========================
 # EVENTS
@@ -377,10 +346,8 @@ async def on_ready():
     await tree.sync()
     print(f"Logged in as {client.user}")
 
-    # 🔥 SINCRONIZAR DB CON DISCORD REAL
     for guild in client.guilds:
 
-        # si no existe en DB, créalo
         cursor.execute("""
             INSERT OR IGNORE INTO guild_settings (guild_id, enabled, channel_id)
             VALUES (?, 0, NULL)
