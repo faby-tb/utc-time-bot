@@ -185,7 +185,6 @@ async def get_clock_channel(guild):
     if channel_id:
         channel = guild.get_channel(channel_id)
 
-        # 🔥 si no está en cache, buscar por API
         if channel is None:
             try:
                 channel = await guild.fetch_channel(channel_id)
