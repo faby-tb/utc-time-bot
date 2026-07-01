@@ -81,13 +81,21 @@ async def get_clock_channel(guild):
 
 
 async def create_clock(guild):
+    for ch in guild.voice_channels:
+        if ch.name.startswith(VOICE_PREFIX):
+            return ch
+
     now = datetime.now(timezone.utc).strftime("%H:%M UTC")
-    return await guild.create_voice_channel(
+
+    channel = await guild.create_voice_channel(
         f"{VOICE_PREFIX} • {now}"
     )
 
+    return channel
+
 
 async def force_update_guild(guild):
+
     channel = await get_clock_channel(guild)
 
     if not channel:
@@ -116,14 +124,19 @@ async def clock(interaction: discord.Interaction, enabled: bool):
         )
         return
 
-    set_enabled(interaction.guild.id, enabled)
+    guild = interaction.guild
+
+    set_enabled(guild.id, enabled)
 
     if enabled:
-        await create_clock(interaction.guild)
-        await force_update_guild(interaction.guild)
-        msg = "UTC clock enabled"
+
+        await force_update_guild(guild)
+
+        msg = "🟢 UTC clock enabled"
+
     else:
-        msg = "UTC clock disabled"
+
+        msg = "🔴 UTC clock disabled"
 
     await interaction.response.send_message(msg, ephemeral=True)
 
