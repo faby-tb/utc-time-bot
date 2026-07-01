@@ -7,7 +7,8 @@ cursor.execute("""
 CREATE TABLE IF NOT EXISTS guild_settings (
     guild_id TEXT PRIMARY KEY,
     enabled INTEGER DEFAULT 0,
-    channel_id TEXT
+    channel_id TEXT,
+    last_update TEXT
 )
 """)
 conn.commit()
@@ -45,3 +46,21 @@ def get_channel(guild_id: int):
     """, (str(guild_id),))
     row = cursor.fetchone()
     return int(row[0]) if row and row[0] else None
+
+def set_last_update(guild_id: int, timestamp: str):
+    cursor.execute("""
+        INSERT INTO guild_settings (guild_id, last_update)
+        VALUES (?, ?)
+        ON CONFLICT(guild_id)
+        DO UPDATE SET last_update=excluded.last_update
+    """, (str(guild_id), timestamp))
+
+    conn.commit()
+
+def get_last_update(guild_id: int):
+    cursor.execute("""
+        SELECT last_update FROM guild_settings WHERE guild_id=?
+    """, (str(guild_id),))
+
+    row = cursor.fetchone()
+    return row[0] if row else None

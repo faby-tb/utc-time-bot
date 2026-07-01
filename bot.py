@@ -27,7 +27,8 @@ cursor.execute("""
 CREATE TABLE IF NOT EXISTS guild_settings (
     guild_id TEXT PRIMARY KEY,
     enabled INTEGER DEFAULT 0,
-    channel_id TEXT
+    channel_id TEXT,
+    last_update TEXT
 )
 """)
 
@@ -55,6 +56,24 @@ def is_enabled(guild_id: int) -> bool:
 
     row = cursor.fetchone()
     return bool(row[0]) if row else False
+
+def set_last_update(guild_id: int, timestamp: str):
+    cursor.execute("""
+        INSERT INTO guild_settings (guild_id, last_update)
+        VALUES (?, ?)
+        ON CONFLICT(guild_id)
+        DO UPDATE SET last_update=excluded.last_update
+    """, (str(guild_id), timestamp))
+
+    conn.commit()
+
+def get_last_update(guild_id: int):
+    cursor.execute("""
+        SELECT last_update FROM guild_settings WHERE guild_id=?
+    """, (str(guild_id),))
+
+    row = cursor.fetchone()
+    return row[0] if row else None
 
 
 # =========================
@@ -126,14 +145,15 @@ def api_guilds():
     guild_ids_db = {}
 
     cursor.execute("""
-        SELECT guild_id, enabled, channel_id
+        SELECT guild_id, enabled, channel_id, last_update
         FROM guild_settings
     """)
 
     for g in cursor.fetchall():
         guild_ids_db[g[0]] = {
             "enabled": bool(g[1]),
-            "channel_id": g[2]
+            "channel_id": g[2],
+            "last_update": g[3]
         }
 
     data = []
@@ -142,14 +162,16 @@ def api_guilds():
 
         db = guild_ids_db.get(str(guild.id), {
             "enabled": False,
-            "channel_id": None
+            "channel_id": None,
+            "last_update": None
         })
 
         data.append({
             "guild_id": guild.id,
             "guild_name": guild.name,
             "enabled": db["enabled"],
-            "channel_id": db["channel_id"]
+            "channel_id": db["channel_id"],
+            "last_update": db["last_update"]
         })
 
     return {"guilds": data}
@@ -205,9 +227,10 @@ def dashboard():
                     div.className = "card";
 
                     div.innerHTML = `
-                        <h3>Server: ${g.guild_id}</h3>
+                        <h3>Server: ${g.guild_name}</h3>
                         <p>Status: ${g.enabled ? "🟢 Enabled" : "🔴 Disabled"}</p>
                         <p>Channel ID: ${g.channel_id || "none"}</p>
+                        <p>Last update: ${g.last_update || "never"}</p>
                     `;
 
                     container.appendChild(div);
@@ -273,6 +296,9 @@ async def force_update_guild(guild):
     await channel.edit(
         name=f"{VOICE_PREFIX} • {hour}"
     )
+
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    set_last_update(guild.id, now)
 
 def get_status_text(guild_id: int) -> str:
     return "enabled" if is_enabled(guild_id) else "disabled"
