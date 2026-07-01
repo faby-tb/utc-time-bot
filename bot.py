@@ -9,9 +9,6 @@ from datetime import datetime, timezone
 from discord import app_commands
 from flask import Flask
 
-if os.path.exists("settings.db"):
-    os.remove("settings.db")
-    print("DB borrada")
 
 # =========================
 # ENV
