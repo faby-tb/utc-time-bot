@@ -2,78 +2,94 @@
 
 A lightweight Discord bot that displays UTC time using a live voice channel clock, slash commands, and dynamic bot presence.
 
-Designed to be simple, multi-server friendly, and optimized to reduce Discord API usage.
+Designed to be simple, multi-server friendly, and optimized for low Discord API usage with persistent cloud storage.
+
+---
+
+## 🔗 Invite the Bot
+
+https://discord.com/oauth2/authorize?client_id=1521608715055403088&permissions=2148600848&integration_type=0&scope=bot+applications.commands
 
 ---
 
 ## ✨ Features
 
-* 🕒 UTC clock displayed in a voice channel
-* ⚡ Automatic channel updates every 15 minutes
-* 🎮 Dynamic bot status showing current UTC time
-* 🌍 Multi-server support
-* 🛠 Slash command controls
-* 🔐 Permission-based management
-* 🧠 Optimized to reduce rate limits
-* ☁️ Ready for Railway deployment
+- 🕒 Live UTC clock in a voice channel  
+- ⚡ Automatic channel updates (efficient interval-based system)  
+- 🎮 Dynamic bot presence showing current UTC time  
+- 🌍 Fully multi-server support  
+- 🛠 Slash command system (/clock, /utc, /clock_refresh)  
+- 🔐 Permission-based controls (Manage Server required)  
+- ☁️ Persistent database storage (Supabase / cloud DB)  
+- 📊 Web dashboard for monitoring servers  
+- 🧠 Optimized Discord API usage (rate-limit safe)  
 
 ---
 
-# 📸 Preview
+## 🗄️ Database
+
+This bot uses a **cloud database (Supabase / PostgreSQL)** for persistence.
+
+This ensures:
+- No data loss on restart  
+- Stable multi-server configuration  
+- Reliable channel tracking  
+
+### Stored per server:
+- Guild ID  
+- Enabled status  
+- Channel ID  
+- Last update timestamp  
+
+---
+
+## 📸 Preview
 
 Voice channel:
-
 ```text
 🕒 UTC • 21:15
 ```
 
 Bot status:
-
 ```text
 Watching 🕒 UTC 21:15
 ```
 
 Command:
-
 ```text
 /utc
 ```
 
 Response:
-
 ```text
 🕒 UTC time: 21:15 UTC
 ```
 
 ---
 
-# 🚀 Commands
+## 🚀 Commands
 
-## /clock
-
+### /clock
+```text
 Enable or disable the UTC clock for the server.
-
-### Enable
-
+```
+Enable:
 ```text
 /clock enabled:true
 ```
 
-### Disable
-
+Disable:
 ```text
 /clock enabled:false
 ```
 
 Required permission:
-
 ```text
 Manage Server
 ```
-
 ---
 
-## /clock_refresh
+### /clock_refresh
 
 Force update the UTC clock immediately.
 
@@ -82,20 +98,17 @@ Force update the UTC clock immediately.
 ```
 
 Example response:
-
 ```text
 Clock updated → 21:15 UTC ✅
 ```
 
 Required permission:
-
 ```text
 Manage Server
 ```
-
 ---
 
-## /utc
+### /utc
 
 Displays the current UTC time.
 
@@ -104,122 +117,115 @@ Displays the current UTC time.
 ```
 
 Example:
-
 ```text
 🕒 UTC time: 21:15 UTC
 ```
 
 ---
 
-# ⚙️ How It Works
+## ⚙️ How It Works
 
 When enabled:
 
-1. The bot creates a voice channel:
-
-   ```text
-   🕒 UTC • HH:MM
-   ```
-
-2. The channel updates automatically every 15 minutes.
-
-3. Bot presence updates every 60 seconds.
-
-4. Each server stores its own configuration independently.
-
----
-
-# 🌍 Multi Server Support
-
-Every server has:
-
-* Independent clock state
-* Independent channel
-* Persistent settings
-
-Configuration is stored in:
-
+1. The bot creates or reuses a voice channel:
 ```text
-settings.json
+🕒 UTC • HH:MM
 ```
 
----
+2. The channel updates automatically at intervals.
 
-# 🧠 Rate Limit Friendly Design
+3. Bot presence updates every minute.
 
-This project intentionally avoids excessive Discord API requests.
-
-Optimizations include:
-
-* Channel updates every 15 minutes
-* Presence updates only when time changes
-* Cached clock channels
-* Reduced channel edits
+4. Server configuration is stored in a cloud database to ensure persistence.
 
 ---
 
-# 📦 Installation
+## 🌍 Multi Server Support
 
-## Clone repository
+Each server has:
 
-```bash
+- Independent clock state  
+- Dedicated voice channel  
+- Persistent settings across restarts  
+- Last update tracking
+
+---
+
+## ☁️ Persistence
+
+Unlike local storage versions, this bot uses:
+
+- Supabase (PostgreSQL cloud database)  
+- No data loss on restart  
+- Fully persistent configuration  
+
+---
+
+## 🧠 Rate Limit Friendly Design
+
+- Minimal channel edits  
+- Cached guild configuration  
+- Efficient update loops  
+- No unnecessary API requests  
+
+---
+
+## 📦 Installation
+
+### Clone repository
+
+```text
 git clone https://github.com/faby-tb/utc-clock-bot.git
 cd utc-clock-bot
 ```
 
 ---
 
-## Install dependencies
+### Install dependencies
 
-```bash
+```text
 pip install -r requirements.txt
 ```
 
 ---
 
-## Create .env
-
-Create a file called:
+### Create .env file
 
 ```text
-.env
-```
-
-Insert:
-
-```env
 TOKEN=YOUR_DISCORD_BOT_TOKEN
+SUPABASE_URL=YOUR_SUPABASE_URL
+SUPABASE_KEY=YOUR_SUPABASE_KEY
 ```
 
 ---
 
-## Run locally
+### Run locally
 
-```bash
+```text
 python bot.py
 ```
 
 ---
 
-# ☁️ Deploy
+## ☁️ Deploy
 
 Recommended platforms:
 
-* Railway
-* Render
-* VPS
-* Replit (light usage)
+- Railway  
+- Render  
+- VPS  
+- Replit (light usage only)  
 
 ---
 
-# 🔐 Required Permissions
+## 🔐 Permissions
 
-Bot permissions:
+Bot requires:
 
-* View Channels
-* Send Messages
-* Manage Channels
-* Connect
+- View Channels  
+- Send Messages  
+- Manage Channels  
+- Connect  
 
 Scopes:
 
@@ -228,53 +234,49 @@ bot
 applications.commands
 ```
 
-Administrator permission is NOT required.
+---
+
+## 📊 Dashboard
+
+The bot includes a web dashboard for monitoring:
+
+- Server list  
+- Clock status  
+- Channel tracking  
+- Last update timestamps  
 
 ---
 
-# 📁 Project Structure
+## 📁 Project Structure
 
 ```text
 utc-clock-bot/
 │
 ├── bot.py
-├── settings.json
-├── .env
 ├── requirements.txt
+├── .env
 └── README.md
 ```
 
 ---
 
-# 💡 Example Use Cases
+## 💡 Use Cases
 
-* International communities
-* Global gaming guilds
-* Development servers
-* UTC event coordination
-* Community hubs
-
----
-
-# 🧩 Future Improvements
-
-* Timezone per server
-* Dashboard panel
-* SQLite storage
-* Web configuration
-* Statistics commands
-* Rich embeds
+- International Discord communities  
+- Gaming guilds  
+- Event coordination  
+- Developer servers  
+- MMO / roleplay communities  
 
 ---
 
-# 👨‍💻 Author
+## 👨‍💻 Author
 
 Created by faby-tb
 
 ---
 
-# 📜 License
+## 📜 License
 
-MIT License
-
-Free to use, modify, and distribute.
+MIT License  
+Free to use, modify, and distribute
