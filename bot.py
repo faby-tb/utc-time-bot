@@ -1,6 +1,8 @@
 import os
 import json
 import discord
+from flask import Flask
+import threading
 
 from dotenv import load_dotenv
 from discord.ext import tasks
@@ -28,6 +30,25 @@ tree = app_commands.CommandTree(
 )
 
 clock_channels = {}
+
+# -------------------
+# FLASK KEEP ALIVE
+# -------------------
+app = Flask(__name__)
+
+@app.route("/")
+def home():
+    return "UTC Bot alive"
+
+@app.route("/health")
+def health():
+    return {
+        "status": "ok",
+        "guilds": len(client.guilds)
+    }
+
+def run_web():
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 3000)))
 
 
 def load_settings():
@@ -308,6 +329,11 @@ async def on_ready():
 
     update_all.start()
     update_presence.start()
+
+# -------------------
+# START WEB SERVER
+# -------------------
+threading.Thread(target=run_web).start()
 
 client.run(
     TOKEN
