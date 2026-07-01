@@ -92,6 +92,80 @@ def home():
 def run_web():
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 3000)))
 
+@app.route("/api/status")
+def api_status():
+    return {
+        "guilds": len(client.guilds),
+        "online": True
+    }
+
+@app.route("/api/guilds")
+def api_guilds():
+
+    cursor.execute("SELECT guild_id, enabled, channel_id FROM guild_settings")
+    rows = cursor.fetchall()
+
+    data = []
+
+    for g in rows:
+        data.append({
+            "guild_id": g[0],
+            "enabled": bool(g[1]),
+            "channel_id": g[2]
+        })
+
+    return {"guilds": data}
+
+@app.route("/api/bot")
+def bot_status():
+    return {
+        "latency": round(client.latency * 1000, 2),
+        "guild_count": len(client.guilds),
+        "status": "online"
+    }
+
+@app.route("/dashboard")
+def dashboard():
+    return """
+    <html>
+    <head>
+        <title>UTC Bot Dashboard</title>
+        <style>
+            body { font-family: Arial; background:#0f0f0f; color:white; }
+            .card { padding:10px; margin:10px; background:#1c1c1c; border-radius:10px; }
+        </style>
+    </head>
+
+    <body>
+        <h1>🕒 UTC Bot Dashboard</h1>
+        <div id="content"></div>
+
+        <script>
+            async function load() {
+                const res = await fetch('/api/guilds');
+                const data = await res.json();
+
+                const container = document.getElementById("content");
+
+                data.guilds.forEach(g => {
+                    const div = document.createElement("div");
+                    div.className = "card";
+
+                    div.innerHTML = `
+                        <h3>Server: ${g.guild_id}</h3>
+                        <p>Status: ${g.enabled ? "🟢 Enabled" : "🔴 Disabled"}</p>
+                        <p>Channel ID: ${g.channel_id || "none"}</p>
+                    `;
+
+                    container.appendChild(div);
+                });
+            }
+
+            load();
+        </script>
+    </body>
+    </html>
+    """
 
 # =========================
 # DISCORD BOT
