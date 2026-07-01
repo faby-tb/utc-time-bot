@@ -189,10 +189,8 @@ def api_sync():
 
     for guild in client.guilds:
         cursor.execute("""
-            INSERT INTO guild_settings (guild_id, enabled, channel_id)
-            VALUES (?, 0, NULL)
-            ON CONFLICT(guild_id)
-            DO UPDATE SET guild_id=excluded.guild_id
+            INSERT OR IGNORE INTO guild_settings (guild_id, enabled, channel_id, last_update)
+            VALUES (?, 0, NULL, NULL)
         """, (str(guild.id),))
 
     conn.commit()
@@ -268,20 +266,21 @@ async def get_clock_channel(guild):
 
 async def create_clock(guild):
 
-    try:
-        now = datetime.now(timezone.utc).strftime("%H:%M UTC")
+    # 🔥 primero busca si ya existe
+    for ch in guild.voice_channels:
+        if ch.name.startswith(VOICE_PREFIX):
+            set_channel(guild.id, ch.id)
+            return ch
 
-        channel = await guild.create_voice_channel(
-            f"{VOICE_PREFIX} • {now}"
-        )
+    now = datetime.now(timezone.utc).strftime("%H:%M UTC")
 
-        set_channel(guild.id, channel.id)
+    channel = await guild.create_voice_channel(
+        f"{VOICE_PREFIX} • {now}"
+    )
 
-        return channel
+    set_channel(guild.id, channel.id)
 
-    except Exception as e:
-        print("create_clock error:", e)
-        return None
+    return channel
 
 
 async def force_update_guild(guild):
@@ -302,6 +301,22 @@ async def force_update_guild(guild):
 
 def get_status_text(guild_id: int) -> str:
     return "enabled" if is_enabled(guild_id) else "disabled"
+
+def ensure_guild(guild_id: int):
+    cursor.execute("""
+        INSERT OR IGNORE INTO guild_settings (guild_id, enabled, channel_id, last_update)
+        VALUES (?, 0, NULL, NULL)
+    """, (str(guild_id),))
+    conn.commit()
+
+async def resync_from_discord(guild):
+    """
+    Reconstruye DB si se pierde estado
+    """
+    for ch in guild.voice_channels:
+        if ch.name.startswith(VOICE_PREFIX):
+            set_channel(guild.id, ch.id)
+            return
 
 # =========================
 # SLASH COMMANDS
@@ -372,24 +387,29 @@ async def on_ready():
     await tree.sync()
     print(f"Logged in as {client.user}")
 
+    # 1. asegurar filas en DB
+    for guild in client.guilds:
+        ensure_guild(guild.id)
+
+    # 2. reconstrucción + sync real
     for guild in client.guilds:
 
-        cursor.execute("""
-            INSERT OR IGNORE INTO guild_settings (guild_id, enabled, channel_id)
-            VALUES (?, 0, NULL)
-        """, (str(guild.id),))
+        if not is_enabled(guild.id):
+            continue
 
-    conn.commit()
+        # 🔥 PASO CLAVE: intentar recuperar canal desde Discord
+        channel = await get_clock_channel(guild)
 
-    for guild in client.guilds:
+        # 🔥 si DB no sirve, buscar en Discord directamente
+        if not channel:
+            channel = await resync_from_discord(guild)
 
-        if is_enabled(guild.id):
-            channel = await get_clock_channel(guild)
+        # 🔥 si todavía no existe, crear uno nuevo
+        if not channel:
+            channel = await create_clock(guild)
 
-            if not channel:
-                await create_clock(guild)
-            else:
-                await force_update_guild(guild)
+        # 🔥 actualización final
+        await force_update_guild(guild)
 
     update_all.start()
     update_presence.start()
