@@ -6,10 +6,10 @@ cursor = conn.cursor()
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS guild_settings (
     guild_id TEXT PRIMARY KEY,
-    enabled INTEGER DEFAULT 0
+    enabled INTEGER DEFAULT 0,
+    channel_id TEXT
 )
 """)
-
 conn.commit()
 
 
@@ -28,3 +28,20 @@ def is_enabled(guild_id: int) -> bool:
     """, (str(guild_id),))
     row = cursor.fetchone()
     return bool(row[0]) if row else False
+
+def set_channel(guild_id: int, channel_id: int):
+    cursor.execute("""
+        INSERT INTO guild_settings (guild_id, enabled, channel_id)
+        VALUES (?, 1, ?)
+        ON CONFLICT(guild_id)
+        DO UPDATE SET channel_id=excluded.channel_id
+    """, (str(guild_id), str(channel_id)))
+    conn.commit()
+
+
+def get_channel(guild_id: int):
+    cursor.execute("""
+        SELECT channel_id FROM guild_settings WHERE guild_id=?
+    """, (str(guild_id),))
+    row = cursor.fetchone()
+    return int(row[0]) if row and row[0] else None

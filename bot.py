@@ -26,18 +26,25 @@ cursor = conn.cursor()
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS guild_settings (
     guild_id TEXT PRIMARY KEY,
-    enabled INTEGER DEFAULT 0
+    enabled INTEGER DEFAULT 0,
+    channel_id TEXT
 )
 """)
+
 conn.commit()
 
 
+# =========================
+# ENABLE / DISABLE STATE
+# =========================
 def set_enabled(guild_id: int, value: bool):
     cursor.execute("""
         INSERT INTO guild_settings (guild_id, enabled)
         VALUES (?, ?)
-        ON CONFLICT(guild_id) DO UPDATE SET enabled=excluded.enabled
+        ON CONFLICT(guild_id)
+        DO UPDATE SET enabled=excluded.enabled
     """, (str(guild_id), int(value)))
+
     conn.commit()
 
 
@@ -45,8 +52,32 @@ def is_enabled(guild_id: int) -> bool:
     cursor.execute("""
         SELECT enabled FROM guild_settings WHERE guild_id=?
     """, (str(guild_id),))
+
     row = cursor.fetchone()
     return bool(row[0]) if row else False
+
+
+# =========================
+# CHANNEL ID STORAGE
+# =========================
+def set_channel(guild_id: int, channel_id: int):
+    cursor.execute("""
+        INSERT INTO guild_settings (guild_id, channel_id)
+        VALUES (?, ?)
+        ON CONFLICT(guild_id)
+        DO UPDATE SET channel_id=excluded.channel_id
+    """, (str(guild_id), str(channel_id)))
+
+    conn.commit()
+
+
+def get_channel(guild_id: int):
+    cursor.execute("""
+        SELECT channel_id FROM guild_settings WHERE guild_id=?
+    """, (str(guild_id),))
+
+    row = cursor.fetchone()
+    return int(row[0]) if row and row[0] else None
 
 
 # =========================
@@ -74,22 +105,29 @@ tree = app_commands.CommandTree(client)
 # UTC HELPERS
 # =========================
 async def get_clock_channel(guild):
-    for ch in guild.voice_channels:
-        if ch.name.startswith(VOICE_PREFIX):
-            return ch
+
+    from db import get_channel
+
+    channel_id = get_channel(guild.id)
+
+    if channel_id:
+        channel = guild.get_channel(channel_id)
+        if channel:
+            return channel
+
     return None
 
 
 async def create_clock(guild):
-    for ch in guild.voice_channels:
-        if ch.name.startswith(VOICE_PREFIX):
-            return ch
 
     now = datetime.now(timezone.utc).strftime("%H:%M UTC")
 
     channel = await guild.create_voice_channel(
         f"{VOICE_PREFIX} • {now}"
     )
+
+    from db import set_channel
+    set_channel(guild.id, channel.id)
 
     return channel
 
