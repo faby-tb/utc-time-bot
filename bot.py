@@ -339,35 +339,35 @@ async def utc(interaction: discord.Interaction):
         f"🕒 UTC time: **{now}**"
     )
 
-@tree.command(name="status", description="Show UTC clock status for this server")
-async def status(interaction: discord.Interaction):
+# @tree.command(name="status", description="Show UTC clock status for this server")
+# async def status(interaction: discord.Interaction):
 
-    guild = interaction.guild
+#     guild = interaction.guild
 
-    if guild is None:
-        await interaction.response.send_message(
-            "This command can only be used in a server.",
-            ephemeral=True
-        )
-        return
+#     if guild is None:
+#         await interaction.response.send_message(
+#             "This command can only be used in a server.",
+#             ephemeral=True
+#         )
+#         return
 
-    status = is_enabled(guild.id)
+#     status = is_enabled(guild.id)
 
-    if status:
-        description = (
-            "🟢 UTC Clock is **ENABLED**\n"
-            "The bot is updating the voice channel every minute."
-        )
-    else:
-        description = (
-            "🔴 UTC Clock is **DISABLED**\n"
-            "Use /clock enabled:true to activate it."
-        )
+#     if status:
+#         description = (
+#             "🟢 UTC Clock is **ENABLED**\n"
+#             "The bot is updating the voice channel every minute."
+#         )
+#     else:
+#         description = (
+#             "🔴 UTC Clock is **DISABLED**\n"
+#             "Use /clock enabled:true to activate it."
+#         )
 
-    await interaction.response.send_message(
-        description,
-        ephemeral=True
-    )
+#     await interaction.response.send_message(
+#         description,
+#         ephemeral=True
+#     )
 
 # =========================
 # EVENTS
@@ -442,5 +442,9 @@ async def update_all():
 # =========================
 # STARTUP
 # =========================
-threading.Thread(target=run_web).start()
+def start_flask():
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 3000)))
+
+threading.Thread(target=start_flask, daemon=True).start()
+
 client.run(TOKEN)
