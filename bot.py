@@ -1,234 +1,154 @@
 import os
-import json
-import discord
-from flask import Flask
+import sqlite3
 import threading
+import discord
 
 from dotenv import load_dotenv
 from discord.ext import tasks
 from datetime import datetime, timezone
 from discord import app_commands
+from flask import Flask
 
+# =========================
+# ENV
+# =========================
 load_dotenv()
-
 TOKEN = os.getenv("TOKEN")
 
 VOICE_PREFIX = "🕒 UTC"
 
-SETTINGS_FILE = "settings.json"
+# =========================
+# SQLITE (PERSISTENCIA)
+# =========================
+conn = sqlite3.connect("settings.db", check_same_thread=False)
+cursor = conn.cursor()
 
-last_hour = None
-
-intents = discord.Intents.default()
-
-client = discord.Client(
-    intents=intents
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS guild_settings (
+    guild_id TEXT PRIMARY KEY,
+    enabled INTEGER DEFAULT 0
 )
+""")
+conn.commit()
 
-tree = app_commands.CommandTree(
-    client
-)
 
-clock_channels = {}
+def set_enabled(guild_id: int, value: bool):
+    cursor.execute("""
+        INSERT INTO guild_settings (guild_id, enabled)
+        VALUES (?, ?)
+        ON CONFLICT(guild_id) DO UPDATE SET enabled=excluded.enabled
+    """, (str(guild_id), int(value)))
+    conn.commit()
 
-# -------------------
-# FLASK KEEP ALIVE
-# -------------------
+
+def is_enabled(guild_id: int) -> bool:
+    cursor.execute("""
+        SELECT enabled FROM guild_settings WHERE guild_id=?
+    """, (str(guild_id),))
+    row = cursor.fetchone()
+    return bool(row[0]) if row else False
+
+
+# =========================
+# FLASK (KEEP ALIVE RENDER)
+# =========================
 app = Flask(__name__)
 
 @app.route("/")
 def home():
     return "UTC Bot alive"
 
-@app.route("/health")
-def health():
-    return {
-        "status": "ok",
-        "guilds": len(client.guilds)
-    }
-
 def run_web():
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 3000)))
 
 
-def load_settings():
-
-    try:
-
-        with open(
-            SETTINGS_FILE,
-            "r",
-            encoding="utf8"
-        ) as f:
-
-            return json.load(f)
-
-    except:
-
-        return {}
+# =========================
+# DISCORD BOT
+# =========================
+intents = discord.Intents.default()
+client = discord.Client(intents=intents)
+tree = app_commands.CommandTree(client)
 
 
-def save_settings(data):
-
-    with open(
-        SETTINGS_FILE,
-        "w",
-        encoding="utf8"
-    ) as f:
-
-        json.dump(
-            data,
-            f,
-            indent=2
-        )
-
-
-settings = load_settings()
-
-
-def enabled(guild_id):
-
-    return settings.get(
-        str(guild_id),
-        False
-    )
+# =========================
+# UTC HELPERS
+# =========================
+async def get_clock_channel(guild):
+    for ch in guild.voice_channels:
+        if ch.name.startswith(VOICE_PREFIX):
+            return ch
+    return None
 
 
 async def create_clock(guild):
-
     now = datetime.now(timezone.utc).strftime("%H:%M UTC")
-
-    await guild.fetch_channels()
-
-    for ch in guild.voice_channels:
-
-        if ch.name.startswith(
-            VOICE_PREFIX
-        ):
-
-            clock_channels[
-                guild.id
-            ] = ch
-
-            return ch
-
-    ch = await guild.create_voice_channel(
+    return await guild.create_voice_channel(
         f"{VOICE_PREFIX} • {now}"
     )
 
-    clock_channels[
-        guild.id
-    ] = ch
 
-    return ch
+async def force_update_guild(guild):
+    channel = await get_clock_channel(guild)
 
+    if not channel:
+        channel = await create_clock(guild)
 
-async def delete_clock(guild):
+    hour = datetime.now(timezone.utc).strftime("%H:%M")
 
-    for ch in guild.voice_channels:
-
-        if ch.name.startswith(
-            VOICE_PREFIX
-        ):
-
-            await ch.delete()
-
-
-@tree.command(
-    name="clock",
-    description="Enable or disable UTC clock"
-)
-@app_commands.describe(
-    enabled="true enable / false disable"
-)
-async def clock(
-    interaction: discord.Interaction,
-    enabled: bool
-):
-
-    guild = interaction.guild
-
-    if guild is None:
-        return
-
-    if not interaction.user.guild_permissions.manage_guild:
-
-        await interaction.response.send_message(
-            "Need Manage Server",
-            ephemeral=True
-        )
-
-        return
-
-    settings[
-        str(guild.id)
-    ] = enabled
-
-    save_settings(
-        settings
+    await channel.edit(
+        name=f"{VOICE_PREFIX} • {hour}"
     )
 
-    if enabled:
+def get_status_text(guild_id: int) -> str:
+    return "enabled" if is_enabled(guild_id) else "disabled"
 
-        await create_clock(
-            guild
-        )
+# =========================
+# SLASH COMMANDS
+# =========================
+@tree.command(name="clock", description="Enable or disable UTC clock")
+@app_commands.describe(enabled="true or false")
+async def clock(interaction: discord.Interaction, enabled: bool):
 
-        msg = (
-            "UTC clock enabled"
-        )
-
-    else:
-
-        await delete_clock(
-            guild
-        )
-
-        await force_update_guild(
-            guild
-        )
-
-        msg = (
-            "UTC clock disabled"
-        )
-
-    await interaction.response.send_message(
-        msg,
-        ephemeral=True
-    )
-
-@tree.command(
-    name="clock_refresh",
-    description="Force update the UTC clock in this server"
-)
-async def clock_refresh(interaction: discord.Interaction):
-
-    guild = interaction.guild
-
-    if guild is None:
-        return
-
-    # permisos (opcional pero recomendado)
     if not interaction.user.guild_permissions.manage_guild:
-
         await interaction.response.send_message(
             "Need Manage Server permission",
             ephemeral=True
         )
-
         return
 
-    await force_update_guild(guild)
+    set_enabled(interaction.guild.id, enabled)
+
+    if enabled:
+        await create_clock(interaction.guild)
+        await force_update_guild(interaction.guild)
+        msg = "UTC clock enabled"
+    else:
+        msg = "UTC clock disabled"
+
+    await interaction.response.send_message(msg, ephemeral=True)
+
+
+@tree.command(name="clock_refresh", description="Force update UTC clock")
+async def clock_refresh(interaction: discord.Interaction):
+
+    if not interaction.user.guild_permissions.manage_guild:
+        await interaction.response.send_message(
+            "Need Manage Server permission",
+            ephemeral=True
+        )
+        return
+
+    await force_update_guild(interaction.guild)
+
+    now = datetime.now(timezone.utc).strftime("%H:%M UTC")
 
     await interaction.response.send_message(
-        f"Clock updated → {datetime.now(timezone.utc).strftime('%H:%M UTC')}✅",
+        f"Clock updated → {now} ✅",
         ephemeral=True
     )
 
-@tree.command(
-    name="utc",
-    description="Show current UTC time"
-)
+
+@tree.command(name="utc", description="Show current UTC time")
 async def utc(interaction: discord.Interaction):
 
     now = datetime.now(timezone.utc).strftime("%H:%M UTC")
@@ -237,104 +157,94 @@ async def utc(interaction: discord.Interaction):
         f"🕒 UTC time: **{now}**"
     )
 
+@tree.command(name="status", description="Show UTC clock status for this server")
+async def status(interaction: discord.Interaction):
 
-async def force_update_guild(guild):
+    guild = interaction.guild
 
-    channel = clock_channels.get(guild.id)
+    if guild is None:
+        await interaction.response.send_message(
+            "This command can only be used in a server.",
+            ephemeral=True
+        )
+        return
 
-    if not channel:
+    status = is_enabled(guild.id)
 
-        channel = await create_clock(guild)
-
-    utc = datetime.now(timezone.utc)
-    hour = utc.strftime("%H:%M")
-
-    try:
-        await channel.edit(
-            name=f"{VOICE_PREFIX} • {hour}"
+    if status:
+        description = (
+            "🟢 UTC Clock is **ENABLED**\n"
+            "The bot is updating the voice channel every minute."
+        )
+    else:
+        description = (
+            "🔴 UTC Clock is **DISABLED**\n"
+            "Use /clock enabled:true to activate it."
         )
 
-    except Exception as e:
+    await interaction.response.send_message(
+        description,
+        ephemeral=True
+    )
 
-        print(guild.name, e)
-
+# =========================
+# EVENTS
+# =========================
 @client.event
-async def on_guild_join(guild):
-
-    if enabled(guild.id):
-
-        await create_clock(guild)
-
-        await force_update_guild(guild)
-
-
-@tasks.loop(seconds=60)
-async def update_presence():
-
-    global last_hour
-
-    utc = datetime.now(
-        timezone.utc
-    )
-
-    hour = utc.strftime(
-        "%H:%M"
-    )
-
-    if hour != last_hour:
-
-        last_hour = hour
-
-        await client.change_presence(
-
-            activity=discord.Activity(
-
-                type=discord.ActivityType.watching,
-
-                name=f"🕒 UTC {hour}"
-
-            )
-
-        )
-
-@tasks.loop(
-    minutes=5
-)
-async def update_all():
-
+async def on_ready():
+    await tree.sync()
+    print(f"Logged in as {client.user}")
 
     for guild in client.guilds:
 
-        if not enabled(guild.id):
+        if not is_enabled(guild.id):
             continue
 
         await force_update_guild(guild)
 
-
-
-@client.event
-async def on_ready():
-
-    await tree.sync()
-
-    print(client.user)
-
-    for guild in client.guilds:
-
-        if enabled(guild.id):
-
-            await create_clock(guild)
-
-            await force_update_guild(guild)
-
     update_all.start()
     update_presence.start()
 
-# -------------------
-# START WEB SERVER
-# -------------------
-threading.Thread(target=run_web).start()
 
-client.run(
-    TOKEN
-)
+@client.event
+async def on_guild_join(guild):
+
+    if is_enabled(guild.id):
+        await force_update_guild(guild)
+
+
+# =========================
+# LOOPS
+# =========================
+last_hour = None
+
+@tasks.loop(seconds=60)
+async def update_presence():
+    global last_hour
+
+    hour = datetime.now(timezone.utc).strftime("%H:%M")
+
+    if hour != last_hour:
+        last_hour = hour
+
+        await client.change_presence(
+            activity=discord.Activity(
+                type=discord.ActivityType.watching,
+                name=f"🕒 UTC {hour}"
+            )
+        )
+
+
+@tasks.loop(minutes=5)
+async def update_all():
+
+    for guild in client.guilds:
+        if is_enabled(guild.id):
+            await force_update_guild(guild)
+
+
+# =========================
+# STARTUP
+# =========================
+threading.Thread(target=run_web).start()
+client.run(TOKEN)
