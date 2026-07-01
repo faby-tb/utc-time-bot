@@ -266,7 +266,6 @@ async def get_clock_channel(guild):
 
 async def create_clock(guild):
 
-    # 🔥 primero busca si ya existe
     for ch in guild.voice_channels:
         if ch.name.startswith(VOICE_PREFIX):
             set_channel(guild.id, ch.id)
@@ -387,28 +386,22 @@ async def on_ready():
     await tree.sync()
     print(f"Logged in as {client.user}")
 
-    # 1. asegurar filas en DB
     for guild in client.guilds:
         ensure_guild(guild.id)
 
-    # 2. reconstrucción + sync real
     for guild in client.guilds:
 
         if not is_enabled(guild.id):
             continue
 
-        # 🔥 PASO CLAVE: intentar recuperar canal desde Discord
         channel = await get_clock_channel(guild)
 
-        # 🔥 si DB no sirve, buscar en Discord directamente
         if not channel:
             channel = await resync_from_discord(guild)
 
-        # 🔥 si todavía no existe, crear uno nuevo
         if not channel:
             channel = await create_clock(guild)
 
-        # 🔥 actualización final
         await force_update_guild(guild)
 
     update_all.start()
