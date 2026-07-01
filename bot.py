@@ -209,7 +209,7 @@ async def clock_refresh(interaction: discord.Interaction):
 @tree.command(name="utc")
 async def utc(interaction: discord.Interaction):
     now = datetime.now(timezone.utc).strftime("%H:%M UTC")
-    await interaction.response.send_message(f"🕒 {now}")
+    await interaction.response.send_message(f"🕒 UTC time: **{now}**")
 
 
 @tree.command(name="status")
