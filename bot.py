@@ -9,6 +9,10 @@ from datetime import datetime, timezone
 from discord import app_commands
 from flask import Flask
 
+if os.path.exists("settings.db"):
+    os.remove("settings.db")
+    print("DB borrada")
+
 # =========================
 # ENV
 # =========================
@@ -38,37 +42,21 @@ conn.commit()
 # DB UNIFICADA (FIX CLAVE)
 # =========================
 def update_guild(guild_id: int, enabled=None, channel_id=None, last_update=None):
-    cursor.execute("SELECT * FROM guild_settings WHERE guild_id=?", (str(guild_id),))
-    row = cursor.fetchone()
 
-    if not row:
-        cursor.execute("""
-            INSERT INTO guild_settings (guild_id, enabled, channel_id, last_update)
-            VALUES (?, ?, ?, ?)
-        """, (
-            str(guild_id),
-            int(enabled) if enabled is not None else 0,
-            str(channel_id) if channel_id else None,
-            last_update
-        ))
-    else:
-        if enabled is not None:
-            cursor.execute(
-                "UPDATE guild_settings SET enabled=? WHERE guild_id=?",
-                (int(enabled), str(guild_id))
-            )
-
-        if channel_id is not None:
-            cursor.execute(
-                "UPDATE guild_settings SET channel_id=? WHERE guild_id=?",
-                (str(channel_id), str(guild_id))
-            )
-
-        if last_update is not None:
-            cursor.execute(
-                "UPDATE guild_settings SET last_update=? WHERE guild_id=?",
-                (last_update, str(guild_id))
-            )
+    cursor.execute("""
+        INSERT INTO guild_settings (guild_id, enabled, channel_id, last_update)
+        VALUES (?, COALESCE(?, 0), ?, ?)
+        ON CONFLICT(guild_id)
+        DO UPDATE SET
+            enabled = COALESCE(excluded.enabled, guild_settings.enabled),
+            channel_id = COALESCE(excluded.channel_id, guild_settings.channel_id),
+            last_update = COALESCE(excluded.last_update, guild_settings.last_update)
+    """, (
+        str(guild_id),
+        int(enabled) if enabled is not None else None,
+        str(channel_id) if channel_id else None,
+        last_update
+    ))
 
     conn.commit()
 
