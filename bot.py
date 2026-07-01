@@ -1,97 +1,44 @@
 import os
-import sqlite3
-import threading
 import discord
-
-from dotenv import load_dotenv
 from discord.ext import tasks
-from datetime import datetime, timezone
 from discord import app_commands
+from dotenv import load_dotenv
+from datetime import datetime, timezone
 from flask import Flask
+import threading
+
+from supabase import create_client
 
 # =========================
 # ENV
 # =========================
 load_dotenv()
+
 TOKEN = os.getenv("TOKEN")
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+sb = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 VOICE_PREFIX = "🕒 UTC"
 
 # =========================
-# SQLITE (PERSISTENTE REAL)
+# SUPABASE HELPERS
 # =========================
-conn = sqlite3.connect("settings.db", check_same_thread=False)
-cursor = conn.cursor()
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS guild_settings (
-    guild_id TEXT PRIMARY KEY,
-    enabled INTEGER DEFAULT 0,
-    channel_id TEXT,
-    last_update TEXT
-)
-""")
-
-conn.commit()
-
-
-# =========================
-# DB - SINGLE SOURCE OF TRUTH
-# =========================
-def set_state(guild_id: int, *, enabled=None, channel_id=None, last_update=None):
-    cursor.execute("""
-        INSERT INTO guild_settings (guild_id, enabled, channel_id, last_update)
-        VALUES (?, 0, NULL, NULL)
-        ON CONFLICT(guild_id)
-        DO UPDATE SET guild_id=guild_id
-    """, (str(guild_id),))
-
-    if enabled is not None:
-        cursor.execute(
-            "UPDATE guild_settings SET enabled=? WHERE guild_id=?",
-            (int(enabled), str(guild_id))
-        )
-
-    if channel_id is not None:
-        cursor.execute(
-            "UPDATE guild_settings SET channel_id=? WHERE guild_id=?",
-            (str(channel_id), str(guild_id))
-        )
-
-    if last_update is not None:
-        cursor.execute(
-            "UPDATE guild_settings SET last_update=? WHERE guild_id=?",
-            (last_update, str(guild_id))
-        )
-
-    conn.commit()
-
-
 def get_state(guild_id: int):
-    cursor.execute("""
-        SELECT enabled, channel_id, last_update
-        FROM guild_settings
-        WHERE guild_id=?
-    """, (str(guild_id),))
+    res = sb.table("guild_settings").select("*").eq("guild_id", str(guild_id)).execute()
 
-    row = cursor.fetchone()
-
-    if not row:
+    if not res.data:
         return {"enabled": False, "channel_id": None, "last_update": None}
 
-    return {
-        "enabled": bool(row[0]),
-        "channel_id": row[1],
-        "last_update": row[2]
-    }
+    return res.data[0]
 
 
-def ensure_guild(guild_id: int):
-    cursor.execute("""
-        INSERT OR IGNORE INTO guild_settings (guild_id, enabled, channel_id, last_update)
-        VALUES (?, 0, NULL, NULL)
-    """, (str(guild_id),))
-    conn.commit()
+def upsert_state(guild_id: int, **fields):
+    data = {"guild_id": str(guild_id)}
+    data.update(fields)
+
+    sb.table("guild_settings").upsert(data).execute()
 
 
 # =========================
@@ -101,9 +48,8 @@ intents = discord.Intents.default()
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
 
-
 # =========================
-# FLASK DASHBOARD
+# FLASK
 # =========================
 app = Flask(__name__)
 
@@ -114,22 +60,14 @@ def home():
 
 @app.route("/api/guilds")
 def api_guilds():
-    cursor.execute("SELECT guild_id, enabled, channel_id, last_update FROM guild_settings")
-    db_rows = cursor.fetchall()
+    db = sb.table("guild_settings").select("*").execute().data or []
 
-    db = {
-        r[0]: {
-            "enabled": bool(r[1]),
-            "channel_id": r[2],
-            "last_update": r[3]
-        }
-        for r in db_rows
-    }
+    mapped = {g["guild_id"]: g for g in db}
 
     data = []
 
     for g in client.guilds:
-        info = db.get(str(g.id), {
+        state = mapped.get(str(g.id), {
             "enabled": False,
             "channel_id": None,
             "last_update": None
@@ -138,9 +76,9 @@ def api_guilds():
         data.append({
             "guild_id": g.id,
             "guild_name": g.name,
-            "enabled": info["enabled"],
-            "channel_id": info["channel_id"],
-            "last_update": info["last_update"]
+            "enabled": state["enabled"],
+            "channel_id": state["channel_id"],
+            "last_update": state["last_update"]
         })
 
     return {"guilds": data}
@@ -166,9 +104,8 @@ def dashboard():
                 const res = await fetch('/api/guilds');
                 const data = await res.json();
 
-                const container = document.getElementById("content");
-
-                container.innerHTML = "";
+                const c = document.getElementById("content");
+                c.innerHTML = "";
 
                 data.guilds.forEach(g => {
                     const div = document.createElement("div");
@@ -181,7 +118,7 @@ def dashboard():
                         <p>Last update: ${g.last_update || "never"}</p>
                     `;
 
-                    container.appendChild(div);
+                    c.appendChild(div);
                 });
             }
 
@@ -196,14 +133,9 @@ def dashboard():
 # =========================
 # CLOCK LOGIC
 # =========================
-async def get_clock_channel(guild):
-    state = get_state(guild.id)
-    channel_id = state["channel_id"]
+async def get_channel(guild, channel_id):
+    ch = guild.get_channel(int(channel_id)) if channel_id else None
 
-    if not channel_id:
-        return None
-
-    ch = guild.get_channel(int(channel_id))
     if ch:
         return ch
 
@@ -220,18 +152,18 @@ async def create_clock(guild):
         f"{VOICE_PREFIX} • {now}"
     )
 
-    set_state(guild.id, channel_id=channel.id)
-
+    upsert_state(guild.id, channel_id=str(channel.id))
     return channel
 
 
 async def force_update_guild(guild):
+
     state = get_state(guild.id)
 
-    if not state["enabled"]:
+    if not state.get("enabled"):
         return
 
-    channel = await get_clock_channel(guild)
+    channel = await get_channel(guild, state.get("channel_id"))
 
     if not channel:
         channel = await create_clock(guild)
@@ -241,7 +173,8 @@ async def force_update_guild(guild):
     await channel.edit(name=f"{VOICE_PREFIX} • {hour}")
 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    set_state(guild.id, last_update=now)
+
+    upsert_state(guild.id, last_update=now)
 
 
 # =========================
@@ -253,7 +186,7 @@ async def clock(interaction: discord.Interaction, enabled: bool):
     if not interaction.user.guild_permissions.manage_guild:
         return await interaction.response.send_message("No permission", ephemeral=True)
 
-    set_state(interaction.guild.id, enabled=enabled)
+    upsert_state(interaction.guild.id, enabled=enabled)
 
     if enabled:
         await force_update_guild(interaction.guild)
@@ -266,21 +199,17 @@ async def clock(interaction: discord.Interaction, enabled: bool):
 
 @tree.command(name="clock_refresh")
 async def clock_refresh(interaction: discord.Interaction):
-
-    if not interaction.user.guild_permissions.manage_guild:
-        return await interaction.response.send_message("No permission", ephemeral=True)
-
     await force_update_guild(interaction.guild)
 
     now = datetime.now(timezone.utc).strftime("%H:%M UTC")
+
     await interaction.response.send_message(f"Updated → {now}", ephemeral=True)
 
 
 @tree.command(name="utc")
 async def utc(interaction: discord.Interaction):
-
     now = datetime.now(timezone.utc).strftime("%H:%M UTC")
-    await interaction.response.send_message(f"🕒 UTC time: **{now}**")
+    await interaction.response.send_message(f"🕒 {now}")
 
 
 @tree.command(name="status")
@@ -289,15 +218,19 @@ async def status(interaction: discord.Interaction):
     state = get_state(interaction.guild.id)
 
     exists = False
-    if state["channel_id"]:
-        ch = interaction.guild.get_channel(int(state["channel_id"]))
-        exists = ch is not None
+
+    if state.get("channel_id"):
+        try:
+            ch = await interaction.guild.fetch_channel(int(state["channel_id"]))
+            exists = ch is not None
+        except:
+            exists = False
 
     msg = (
-        f"🟢 Enabled: {state['enabled']}\n"
-        f"📡 Channel: {state['channel_id']}\n"
+        f"🟢 Enabled: {state.get('enabled')}\n"
+        f"📡 Channel: {state.get('channel_id')}\n"
         f"🔗 Exists: {exists}\n"
-        f"⏱ Last update: {state['last_update'] or 'never'}"
+        f"⏱ Last update: {state.get('last_update') or 'never'}"
     )
 
     await interaction.response.send_message(msg, ephemeral=True)
@@ -312,23 +245,16 @@ async def on_ready():
     print(f"Logged in as {client.user}")
 
     for g in client.guilds:
-        ensure_guild(g.id)
+        upsert_state(g.id)
 
     for g in client.guilds:
         state = get_state(g.id)
 
-        if not state["enabled"]:
-            continue
-
-        await force_update_guild(g)
+        if state.get("enabled"):
+            await force_update_guild(g)
 
     update_all.start()
     update_presence.start()
-
-
-@client.event
-async def on_guild_join(guild):
-    ensure_guild(guild.id)
 
 
 # =========================
@@ -345,7 +271,6 @@ async def update_presence():
 
     if hour != last_hour:
         last_hour = hour
-
         await client.change_presence(
             activity=discord.Activity(
                 type=discord.ActivityType.watching,
@@ -357,7 +282,7 @@ async def update_presence():
 @tasks.loop(minutes=5)
 async def update_all():
     for g in client.guilds:
-        if get_state(g.id)["enabled"]:
+        if get_state(g.id).get("enabled"):
             await force_update_guild(g)
 
 
