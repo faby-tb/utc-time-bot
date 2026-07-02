@@ -163,44 +163,404 @@ def dashboard():
 
     return """
 <html>
-<body style='background:#111;color:white;font-family:Arial'>
-<h1>🕒 UTC Dashboard</h1>
-<div id='data'></div>
+
+<head>
+
+<title>UTC Clock Dashboard</title>
+
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<style>
+
+*{
+box-sizing:border-box;
+margin:0;
+padding:0;
+font-family:Inter,Arial;
+}
+
+body{
+background:#0b1020;
+color:white;
+padding:30px;
+}
+
+.header{
+margin-bottom:25px;
+}
+
+.title{
+font-size:40px;
+font-weight:800;
+}
+
+.subtitle{
+color:#888;
+margin-top:5px;
+}
+
+.stats{
+display:grid;
+grid-template-columns:
+repeat(auto-fit,minmax(220px,1fr));
+
+gap:15px;
+
+margin-bottom:30px;
+}
+
+.stat{
+
+background:#141b31;
+
+padding:20px;
+
+border-radius:18px;
+
+}
+
+.number{
+
+font-size:34px;
+
+font-weight:800;
+
+margin-top:10px;
+
+}
+
+.grid{
+
+display:grid;
+
+grid-template-columns:
+repeat(auto-fit,minmax(350px,1fr));
+
+gap:20px;
+
+}
+
+.card{
+
+background:
+
+linear-gradient(
+180deg,
+#161d35,
+#111827
+);
+
+border:
+
+1px solid
+rgba(
+255,
+255,
+255,
+0.05
+);
+
+padding:22px;
+
+border-radius:20px;
+
+transition:.2s;
+
+}
+
+.card:hover{
+
+transform:
+translateY(-2px);
+
+}
+
+.server{
+
+font-size:22px;
+
+font-weight:700;
+
+margin-bottom:12px;
+
+}
+
+.row{
+
+margin-top:10px;
+
+display:flex;
+
+justify-content:
+space-between;
+
+color:#ccc;
+
+}
+
+.green{
+
+color:#55ff99;
+
+}
+
+.red{
+
+color:#ff6666;
+
+}
+
+.small{
+
+font-size:13px;
+
+color:#777;
+
+}
+
+.badge{
+
+padding:
+
+6px 10px;
+
+border-radius:999px;
+
+font-size:13px;
+
+font-weight:700;
+
+}
+
+.enabled{
+
+background:#133923;
+
+color:#67ffab;
+
+}
+
+.disabled{
+
+background:#421515;
+
+color:#ff8080;
+
+}
+
+.refresh{
+
+position:fixed;
+
+top:20;
+
+right:20;
+
+color:#666;
+
+}
+
+</style>
+
+</head>
+
+<body>
+
+<div class="refresh">
+Auto refresh • 5s
+</div>
+
+<div class="header">
+
+<div class="title">
+🕒 UTC Clock Dashboard
+</div>
+
+<div class="subtitle">
+Private admin panel
+</div>
+
+</div>
+
+<div class="stats">
+
+<div class="stat">
+
+Servers
+
+<div
+class="number"
+id="servers">
+—
+</div>
+
+</div>
+
+<div class="stat">
+
+Enabled
+
+<div
+class="number"
+id="enabled">
+—
+</div>
+
+</div>
+
+<div class="stat">
+
+Disabled
+
+<div
+class="number"
+id="disabled">
+—
+</div>
+
+</div>
+
+</div>
+
+<div
+class="grid"
+id="content">
+</div>
 
 <script>
 
 async function load(){
 
-const r=
-await fetch('/api/guilds');
+const res=
+await fetch(
+"/api/guilds"
+);
 
-const j=
-await r.json();
+const data=
+await res.json();
 
-const d=
-document.getElementById("data");
+const root=
+document.getElementById(
+"content"
+);
 
-d.innerHTML="";
+root.innerHTML="";
 
-j.guilds.forEach(g=>{
+let enabled=0;
 
-d.innerHTML+=`
-<div style="
-margin:10px;
-padding:10px;
-background:#222;
-border-radius:12px">
+data.guilds.forEach(g=>{
 
-<h3>${g.guild_name}</h3>
+if(
+g.enabled
+)
+enabled++;
 
-<p>${g.enabled?"🟢":"🔴"}</p>
+root.innerHTML+=`
 
-<p>${g.last_update||"never"}</p>
+<div class="card">
+
+<div class="server">
+
+${g.guild_name}
 
 </div>
+
+<div>
+
+<span class="badge ${
+g.enabled
+?
+'enabled'
+:
+'disabled'
+}">
+
+${
+g.enabled
+?
+'🟢 ENABLED'
+:
+'🔴 DISABLED'
+}
+
+</span>
+
+</div>
+
+<div class="row">
+
+<div>
+Server ID
+</div>
+
+<div>
+${g.guild_id}
+</div>
+
+</div>
+
+<div class="row">
+
+<div>
+Channel
+</div>
+
+<div>
+
+${
+g.channel_id
+||
+'none'
+}
+
+</div>
+
+</div>
+
+<div class="row">
+
+<div>
+Last Update
+</div>
+
+<div>
+
+${
+g.last_update
+||
+'never'
+}
+
+</div>
+
+</div>
+
+</div>
+
 `;
 
 });
+
+document
+.getElementById(
+"servers"
+)
+.innerText=
+data.guilds.length;
+
+document
+.getElementById(
+"enabled"
+)
+.innerText=
+enabled;
+
+document
+.getElementById(
+"disabled"
+)
+.innerText=
+data.guilds.length-enabled;
 
 }
 
@@ -214,6 +574,7 @@ load,
 </script>
 
 </body>
+
 </html>
 """
 
