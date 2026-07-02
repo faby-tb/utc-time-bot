@@ -1,13 +1,15 @@
 import os
 import discord
-from discord.ext import tasks
-from discord import app_commands
-from dotenv import load_dotenv
-from datetime import datetime, timezone
-from flask import Flask
 import threading
 
+from dotenv import load_dotenv
+from discord.ext import tasks
+from discord import app_commands
+from datetime import datetime, timezone
+from flask import Flask
+
 from supabase import create_client
+
 
 # =========================
 # ENV
@@ -18,40 +20,101 @@ TOKEN = os.getenv("TOKEN")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-sb = create_client(SUPABASE_URL, SUPABASE_KEY)
+sb = create_client(
+    SUPABASE_URL,
+    SUPABASE_KEY
+)
 
 VOICE_PREFIX = "🕒 UTC"
 
+
 # =========================
-# SUPABASE HELPERS
+# SUPABASE
 # =========================
 def get_state(guild_id: int):
-    res = sb.table("guild_settings").select("*").eq("guild_id", str(guild_id)).execute()
+
+    res = (
+        sb.table("guild_settings")
+        .select("*")
+        .eq("guild_id", str(guild_id))
+        .execute()
+    )
 
     if not res.data:
-        return {"enabled": False, "channel_id": None, "last_update": None}
 
-    return res.data[0]
+        return {
+            "enabled": False,
+            "channel_id": None,
+            "last_update": None,
+            "allowed_roles": []
+        }
+
+    state = res.data[0]
+
+    state.setdefault(
+        "allowed_roles",
+        []
+    )
+
+    return state
 
 
 def upsert_state(guild_id: int, **fields):
-    data = {"guild_id": str(guild_id)}
-    data.update(fields)
 
-    sb.table("guild_settings").upsert(data).execute()
+    data = {
+        "guild_id": str(guild_id)
+    }
+
+    data.update(
+        fields
+    )
+
+    (
+        sb.table("guild_settings")
+        .upsert(data)
+        .execute()
+    )
+
+
+def can_manage_clock(member):
+
+    if member.guild_permissions.administrator:
+        return True
+
+    state = get_state(
+        member.guild.id
+    )
+
+    allowed = state.get(
+        "allowed_roles",
+        []
+    )
+
+    return any(
+        str(role.id) in allowed
+        for role in member.roles
+    )
 
 
 # =========================
 # DISCORD
 # =========================
 intents = discord.Intents.default()
-client = discord.Client(intents=intents)
-tree = app_commands.CommandTree(client)
+
+client = discord.Client(
+    intents=intents
+)
+
+tree = app_commands.CommandTree(
+    client
+)
+
 
 # =========================
 # FLASK
 # =========================
 app = Flask(__name__)
+
 
 @app.route("/")
 def home():
@@ -59,181 +122,387 @@ def home():
 
 
 @app.route("/api/guilds")
-def api_guilds():
-    db = sb.table("guild_settings").select("*").execute().data or []
+def api():
 
-    mapped = {g["guild_id"]: g for g in db}
+    db = (
+        sb.table("guild_settings")
+        .select("*")
+        .execute()
+        .data
+    )
 
-    data = []
+    mapped = {
+        x["guild_id"]: x
+        for x in db
+    }
+
+    out = []
 
     for g in client.guilds:
-        state = mapped.get(str(g.id), {
-            "enabled": False,
-            "channel_id": None,
-            "last_update": None
-        })
 
-        data.append({
+        state = mapped.get(
+            str(g.id),
+            {}
+        )
+
+        out.append({
             "guild_id": g.id,
             "guild_name": g.name,
-            "enabled": state["enabled"],
-            "channel_id": state["channel_id"],
-            "last_update": state["last_update"]
+            "enabled": state.get("enabled"),
+            "channel_id": state.get("channel_id"),
+            "last_update": state.get("last_update")
         })
 
-    return {"guilds": data}
+    return {
+        "guilds": out
+    }
 
 
 @app.route("/dashboard")
 def dashboard():
+
     return """
-    <html>
-    <head>
-        <title>UTC Bot</title>
-        <style>
-            body { font-family: Arial; background:#0f0f0f; color:white; }
-            .card { padding:10px; margin:10px; background:#1c1c1c; border-radius:10px; }
-        </style>
-    </head>
-    <body>
-        <h1>🕒 UTC Bot Dashboard</h1>
-        <div id="content"></div>
+<html>
+<body style='background:#111;color:white;font-family:Arial'>
+<h1>🕒 UTC Dashboard</h1>
+<div id='data'></div>
 
-        <script>
-            async function load(){
-                const res = await fetch('/api/guilds');
-                const data = await res.json();
+<script>
 
-                const c = document.getElementById("content");
-                c.innerHTML = "";
+async function load(){
 
-                data.guilds.forEach(g => {
-                    const div = document.createElement("div");
-                    div.className = "card";
+const r=
+await fetch('/api/guilds');
 
-                    div.innerHTML = `
-                        <h3>${g.guild_name}</h3>
-                        <p>Status: ${g.enabled ? "🟢 Enabled" : "🔴 Disabled"}</p>
-                        <p>Channel: ${g.channel_id || "none"}</p>
-                        <p>Last update: ${g.last_update || "never"}</p>
-                    `;
+const j=
+await r.json();
 
-                    c.appendChild(div);
-                });
-            }
+const d=
+document.getElementById("data");
 
-            load();
-            setInterval(load, 5000);
-        </script>
-    </body>
-    </html>
-    """
+d.innerHTML="";
+
+j.guilds.forEach(g=>{
+
+d.innerHTML+=`
+<div style="
+margin:10px;
+padding:10px;
+background:#222;
+border-radius:12px">
+
+<h3>${g.guild_name}</h3>
+
+<p>${g.enabled?"🟢":"🔴"}</p>
+
+<p>${g.last_update||"never"}</p>
+
+</div>
+`;
+
+});
+
+}
+
+load();
+
+setInterval(
+load,
+5000
+);
+
+</script>
+
+</body>
+</html>
+"""
 
 
 # =========================
-# CLOCK LOGIC
+# CLOCK
 # =========================
-async def get_channel(guild, channel_id):
-    ch = guild.get_channel(int(channel_id)) if channel_id else None
+async def get_channel(
+    guild,
+    channel_id
+):
+
+    if not channel_id:
+        return None
+
+    ch = guild.get_channel(
+        int(channel_id)
+    )
 
     if ch:
         return ch
 
     try:
-        return await guild.fetch_channel(int(channel_id))
+
+        return await guild.fetch_channel(
+            int(channel_id)
+        )
+
     except:
+
         return None
 
 
 async def create_clock(guild):
-    now = datetime.now(timezone.utc).strftime("%H:%M UTC")
 
-    channel = await guild.create_voice_channel(
+    now = (
+        datetime
+        .now(timezone.utc)
+        .strftime("%H:%M")
+    )
+
+    ch = await guild.create_voice_channel(
         f"{VOICE_PREFIX} • {now}"
     )
 
-    upsert_state(guild.id, channel_id=str(channel.id))
-    return channel
+    upsert_state(
+        guild.id,
+        channel_id=str(ch.id)
+    )
+
+    return ch
 
 
 async def force_update_guild(guild):
 
-    state = get_state(guild.id)
+    state = get_state(
+        guild.id
+    )
 
-    if not state.get("enabled"):
+    if not state.get(
+        "enabled"
+    ):
         return
 
-    channel = await get_channel(guild, state.get("channel_id"))
+    ch = await get_channel(
+        guild,
+        state.get(
+            "channel_id"
+        )
+    )
 
-    if not channel:
-        channel = await create_clock(guild)
+    if not ch:
 
-    hour = datetime.now(timezone.utc).strftime("%H:%M")
+        ch = await create_clock(
+            guild
+        )
 
-    await channel.edit(name=f"{VOICE_PREFIX} • {hour}")
+    hour = (
+        datetime
+        .now(timezone.utc)
+        .strftime("%H:%M")
+    )
 
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    await ch.edit(
+        name=f"{VOICE_PREFIX} • {hour}"
+    )
 
-    upsert_state(guild.id, last_update=now)
+    upsert_state(
+        guild.id,
+        last_update=datetime.now(
+            timezone.utc
+        ).isoformat()
+    )
 
 
 # =========================
 # COMMANDS
 # =========================
-@tree.command(name="clock")
-async def clock(interaction: discord.Interaction, enabled: bool):
+@tree.command()
+async def clock(
+    interaction: discord.Interaction,
+    enabled: bool
+):
 
-    if not interaction.user.guild_permissions.manage_guild:
-        return await interaction.response.send_message("No permission", ephemeral=True)
+    if not can_manage_clock(
+        interaction.user
+    ):
 
-    upsert_state(interaction.guild.id, enabled=enabled)
+        return await interaction.response.send_message(
+            "No permission",
+            ephemeral=True
+        )
 
-    if enabled:
-        await force_update_guild(interaction.guild)
-        msg = "🟢 Enabled"
-    else:
-        msg = "🔴 Disabled"
-
-    await interaction.response.send_message(msg, ephemeral=True)
-
-
-@tree.command(name="clock_refresh")
-async def clock_refresh(interaction: discord.Interaction):
-    await force_update_guild(interaction.guild)
-
-    now = datetime.now(timezone.utc).strftime("%H:%M UTC")
-
-    await interaction.response.send_message(f"Updated → {now}", ephemeral=True)
-
-
-@tree.command(name="utc")
-async def utc(interaction: discord.Interaction):
-    now = datetime.now(timezone.utc).strftime("%H:%M UTC")
-    await interaction.response.send_message(f"🕒 UTC time: **{now}**")
-
-
-@tree.command(name="status")
-async def status(interaction: discord.Interaction):
-
-    state = get_state(interaction.guild.id)
-
-    exists = False
-
-    if state.get("channel_id"):
-        try:
-            ch = await interaction.guild.fetch_channel(int(state["channel_id"]))
-            exists = ch is not None
-        except:
-            exists = False
-
-    msg = (
-        f"🟢 Enabled: {state.get('enabled')}\n"
-        f"📡 Channel: {state.get('channel_id')}\n"
-        f"🔗 Exists: {exists}\n"
-        f"⏱ Last update: {state.get('last_update') or 'never'}"
+    upsert_state(
+        interaction.guild.id,
+        enabled=enabled
     )
 
-    await interaction.response.send_message(msg, ephemeral=True)
+    if enabled:
+
+        await force_update_guild(
+            interaction.guild
+        )
+
+    await interaction.response.send_message(
+        f"{'🟢 Enabled' if enabled else '🔴 Disabled'}",
+        ephemeral=True
+    )
+
+
+@tree.command()
+async def clock_refresh(
+    interaction: discord.Interaction
+):
+
+    if not can_manage_clock(
+        interaction.user
+    ):
+
+        return await interaction.response.send_message(
+            "No permission",
+            ephemeral=True
+        )
+
+    await force_update_guild(
+        interaction.guild
+    )
+
+    await interaction.response.send_message(
+        "Updated",
+        ephemeral=True
+    )
+
+
+@tree.command()
+async def utc(
+    interaction: discord.Interaction
+):
+
+    now = (
+        datetime
+        .now(timezone.utc)
+        .strftime("%H:%M UTC")
+    )
+
+    await interaction.response.send_message(
+        f"🕒 UTC time: **{now}**"
+    )
+
+
+@tree.command()
+async def status(
+    interaction: discord.Interaction
+):
+
+    state = get_state(
+        interaction.guild.id
+    )
+
+    await interaction.response.send_message(
+        str(state),
+        ephemeral=True
+    )
+
+
+@tree.command()
+async def clock_role_add(
+    interaction: discord.Interaction,
+    role: discord.Role
+):
+
+    if not interaction.user.guild_permissions.administrator:
+
+        return await interaction.response.send_message(
+            "Administrator only",
+            ephemeral=True
+        )
+
+    state = get_state(
+        interaction.guild.id
+    )
+
+    roles = state.get(
+        "allowed_roles",
+        []
+    )
+
+    rid = str(
+        role.id
+    )
+
+    if rid not in roles:
+
+        roles.append(
+            rid
+        )
+
+    upsert_state(
+        interaction.guild.id,
+        allowed_roles=roles
+    )
+
+    await interaction.response.send_message(
+        f"{role.mention} added",
+        ephemeral=True
+    )
+
+
+@tree.command()
+async def clock_role_remove(
+    interaction: discord.Interaction,
+    role: discord.Role
+):
+
+    if not interaction.user.guild_permissions.administrator:
+
+        return
+
+    state = get_state(
+        interaction.guild.id
+    )
+
+    roles = state.get(
+        "allowed_roles",
+        []
+    )
+
+    rid = str(
+        role.id
+    )
+
+    if rid in roles:
+
+        roles.remove(
+            rid
+        )
+
+    upsert_state(
+        interaction.guild.id,
+        allowed_roles=roles
+    )
+
+    await interaction.response.send_message(
+        "Removed",
+        ephemeral=True
+    )
+
+
+@tree.command()
+async def clock_roles(
+    interaction: discord.Interaction
+):
+
+    roles = get_state(
+        interaction.guild.id
+    ).get(
+        "allowed_roles",
+        []
+    )
+
+    msg = "\n".join(
+        f"<@&{x}>"
+        for x in roles
+    )
+
+    await interaction.response.send_message(
+        msg or "No roles",
+        ephemeral=True
+    )
 
 
 # =========================
@@ -241,17 +510,28 @@ async def status(interaction: discord.Interaction):
 # =========================
 @client.event
 async def on_ready():
+
     await tree.sync()
-    print(f"Logged in as {client.user}")
+
+    print(
+        client.user
+    )
 
     for g in client.guilds:
-        upsert_state(g.id)
 
-    for g in client.guilds:
-        state = get_state(g.id)
+        upsert_state(
+            g.id
+        )
 
-        if state.get("enabled"):
-            await force_update_guild(g)
+        if get_state(
+            g.id
+        ).get(
+            "enabled"
+        ):
+
+            await force_update_guild(
+                g
+            )
 
     update_all.start()
     update_presence.start()
@@ -265,33 +545,63 @@ last_hour = None
 
 @tasks.loop(seconds=60)
 async def update_presence():
+
     global last_hour
 
-    hour = datetime.now(timezone.utc).strftime("%H:%M")
+    hour = (
+        datetime
+        .now(timezone.utc)
+        .strftime("%H:%M")
+    )
 
     if hour != last_hour:
+
         last_hour = hour
+
         await client.change_presence(
+
             activity=discord.Activity(
+
                 type=discord.ActivityType.watching,
+
                 name=f"🕒 UTC {hour}"
+
             )
+
         )
 
 
 @tasks.loop(minutes=5)
 async def update_all():
+
     for g in client.guilds:
-        if get_state(g.id).get("enabled"):
-            await force_update_guild(g)
+
+        await force_update_guild(
+            g
+        )
 
 
 # =========================
 # START
 # =========================
 def start_flask():
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 3000)))
 
-threading.Thread(target=start_flask, daemon=True).start()
+    app.run(
+        host="0.0.0.0",
+        port=int(
+            os.getenv(
+                "PORT",
+                3000
+            )
+        )
+    )
 
-client.run(TOKEN)
+
+threading.Thread(
+    target=start_flask,
+    daemon=True
+).start()
+
+client.run(
+    TOKEN
+)
