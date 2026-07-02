@@ -384,7 +384,10 @@ async def utc(
     )
 
 
-@tree.command()
+@tree.command(
+    name="status",
+    description="Show UTC Clock status"
+)
 async def status(
     interaction: discord.Interaction
 ):
@@ -393,8 +396,90 @@ async def status(
         interaction.guild.id
     )
 
+    enabled = (
+        "🟢 Enabled"
+        if state.get("enabled")
+        else "🔴 Disabled"
+    )
+
+    channel = state.get(
+        "channel_id"
+    )
+
+    channel_text = (
+        f"<#{channel}"
+        if channel
+        else "None"
+    )
+
+    updated = (
+        state.get(
+            "last_update"
+        )
+        or "Never"
+    )
+
+    roles = state.get(
+        "allowed_roles",
+        []
+    )
+
+    role_text = (
+        "\n".join(
+            f"<@&{r}>"
+            for r in roles
+        )
+        if roles
+        else "Administrators only"
+    )
+
+    embed = discord.Embed(
+
+        title="🕒 UTC Clock Status",
+
+        description=(
+            "Current configuration "
+            "for this server"
+        ),
+
+        color=discord.Color.blurple()
+
+    )
+
+    embed.add_field(
+        name="Status",
+        value=enabled,
+        inline=False
+    )
+
+    embed.add_field(
+        name="Clock Channel",
+        value=channel_text,
+        inline=False
+    )
+
+    embed.add_field(
+        name="Last Update",
+        value=f"`{updated}`",
+        inline=False
+    )
+
+    embed.add_field(
+        name="Allowed Roles",
+        value=role_text,
+        inline=False
+    )
+
+    embed.set_footer(
+        text=f"Server ID • {interaction.guild.id}"
+    )
+
+    embed.set_thumbnail(
+        url=client.user.display_avatar.url
+    )
+
     await interaction.response.send_message(
-        str(state),
+        embed=embed,
         ephemeral=True
     )
 
